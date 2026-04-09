@@ -31,7 +31,7 @@ dotenv.config();
 // ═══════════════════════════════════════════════════════════════════════════
 
 const PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY;
-const SERVER_URL = process.env.AGENT_SERVER_URL || 'http://localhost:4002';
+const SERVER_URL = process.env.AGENT_SERVER_URL || 'http://localhost:3001';
 const NETWORK = (process.env.NETWORK as 'testnet' | 'mainnet') || 'testnet';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;

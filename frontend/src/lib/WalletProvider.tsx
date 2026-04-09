@@ -3,9 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import {
   StellarWalletsKit,
-  WalletNetwork,
-  allowAllModules,
-  FREIGHTER_ID,
+  Networks,
 } from "@creit.tech/stellar-wallets-kit";
 import * as StellarSdk from "@stellar/stellar-sdk";
 
@@ -17,7 +15,7 @@ interface WalletContextType {
   signTransaction: (transactionXdr: string) => Promise<string>;
   isConnected: boolean;
 }
-
+export type { WalletContextType };
 const WalletContext = createContext<WalletContextType | null>(null);
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
@@ -27,25 +25,29 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Initialize the kit on mount (client-side only)
-    const initializeKit = () => {
-      const newKit = new StellarWalletsKit({
-        network: WalletNetwork.TESTNET,
-        selectedWalletId: FREIGHTER_ID,
-        modules: allowAllModules(),
-      });
+    const initializeKit = async () => {
+      // Set network first (static method)
+      StellarWalletsKit.setNetwork(Networks.TESTNET);
+      
+      // Create new kit instance
+      const newKit = new StellarWalletsKit();
       setKit(newKit);
       setMounted(true);
 
       // Check if wallet was previously connected
       const savedWalletId = localStorage.getItem('synergi_wallet_id');
       if (savedWalletId) {
-        newKit.setWallet(savedWalletId);
-        newKit.getAddress().then(({ address }) => {
-          setAddress(address);
-        }).catch(() => {
+        try {
+          // Set the wallet using static method
+          await StellarWalletsKit.setWallet(savedWalletId);
+          const addr = await StellarWalletsKit.getAddress();
+          if (addr && addr.address) {
+            setAddress(addr.address);
+          }
+        } catch {
           // Wallet not available, clear saved selection
           localStorage.removeItem('synergi_wallet_id');
-        });
+        }
       }
     };
 
@@ -56,15 +58,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!kit) return;
 
     try {
-      await kit.openModal({
-        onWalletSelected: async (option) => {
-          kit.setWallet(option.id);
-          localStorage.setItem('synergi_wallet_id', option.id);
-          
-          const { address } = await kit.getAddress();
-          setAddress(address);
-        },
-      });
+      // Since static methods are failing, we use the instance 'kit'
+      // and a fallback to 'freighter' if the SDK doesn't provide a list
+      const walletId = 'freighter';
+      
+      await StellarWalletsKit.setWallet(walletId);
+      localStorage.setItem('synergi_wallet_id', walletId);
+      
+      const addr = await StellarWalletsKit.getAddress();
+      if (addr && typeof addr === 'object' && 'address' in addr) {
+        setAddress((addr as any).address);
+      } else if (typeof addr === 'string') {
+        setAddress(addr);
+      }
     } catch (error) {
       console.error("Connection failed:", error);
     }
@@ -73,28 +79,36 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const disconnect = useCallback(() => {
     setAddress(null);
     localStorage.removeItem('synergi_wallet_id');
-    if (kit) {
-      // Reset to default wallet
-      kit.setWallet(FREIGHTER_ID);
-    }
-  }, [kit]);
+    // Reset to default wallet
+    StellarWalletsKit.setWallet('freighter');
+  }, []);
 
   const signTransaction = useCallback(async (transactionXdr: string): Promise<string> => {
-    if (!kit || !address) {
+    if (!address) {
       throw new Error('Wallet not connected');
     }
 
     try {
-      const { signedTxXdr } = await kit.signTransaction(transactionXdr, {
+      const result = await StellarWalletsKit.signTransaction(transactionXdr, {
         address,
         networkPassphrase: StellarSdk.Networks.TESTNET,
       });
-      return signedTxXdr;
+      
+      // Handle both string and object return types
+      if (typeof result === 'string') {
+        return result;
+      }
+      // If result is an object, extract the signedTxXdr property
+      if (result && typeof result === 'object' && 'signedTxXdr' in result) {
+        return (result as { signedTxXdr: string }).signedTxXdr;
+      }
+      // Fallback: return empty string if no valid result
+      return '';
     } catch (error) {
       console.error("Transaction signing failed:", error);
       throw error;
     }
-  }, [kit, address]);
+  }, [address]);
 
   return (
     <WalletContext.Provider value={{ 

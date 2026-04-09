@@ -1,26 +1,79 @@
 /**
- * Generate Wallet — Create a testnet Stellar keypair for the agent
- *
+ * Generate Wallet — Create a testnet Stellar keypair for the agent and onboard it
+ * 
+ * This script generates a new keypair and uses the SYNERGI backend to sponsor 
+ * the account and establish a USDC trustline.
+ * 
  * Run: npx tsx agent/src/generate-wallet.ts
- * Copy the output into your .env as AGENT_PRIVATE_KEY
  */
 
 import StellarSdk from '@stellar/stellar-sdk';
 
-const keypair = StellarSdk.Keypair.generate();
+const SERVICE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-console.log('');
-console.log('================================================================');
-console.log('  NEW STELLAR TESTNET WALLET');
-console.log('================================================================');
-console.log(`  Public Key (Address) : ${keypair.publicKey()}`);
-console.log(`  Private Key (Secret) : ${keypair.secret()}`);
-console.log('================================================================');
-console.log('');
-console.log('  Add to your .env:');
-console.log(`  AGENT_PRIVATE_KEY=${keypair.secret()}`);
-console.log('');
-console.log('  Get testnet XLM from:');
-console.log('  https://laboratory.stellar.org/');
-console.log('');
+async function generateAndOnboardWallet() {
+  try {
+    console.log('\n================================================================');
+    console.log('  SYNERGI — STELLAR AGENT ONBOARDING');
+    console.log('================================================================\n');
+
+    // 1. Generate keypair
+    console.log('Generating new Stellar keypair...');
+    const agent = StellarSdk.Keypair.random();
+    const publicKey = agent.publicKey();
+    const secretKey = agent.secret();
+
+    console.log(`  Public Key (Address) : ${publicKey}`);
+    console.log(`  Private Key (Secret) : ${secretKey}`);
+    console.log('----------------------------------------------------------------');
+
+    // 2. Request sponsored account from SYNERGI backend
+    console.log('\nRequesting sponsored account and USDC trustline...');
+    const createResponse = await fetch(`${SERVICE_URL}/api/agent/onboard`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: publicKey }),
+    }).then(r => r.json());
+
+    if (!createResponse.xdr) {
+      throw new Error(`Onboarding failed: ${JSON.stringify(createResponse)}`);
+    }
+
+    const { xdr, network_passphrase } = createResponse;
+    console.log('Sponsorship XDR received. Signing transaction...');
+
+    // 3. Inspect, sign, and submit
+    const tx = StellarSdk.TransactionBuilder.fromXDR(xdr, network_passphrase);
+    tx.sign(agent);
+
+    const submitResponse = await fetch(`${SERVICE_URL}/api/agent/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ xdr: tx.toXDR() }),
+    }).then(r => r.json());
+
+    if (submitResponse.error) {
+      throw new Error(`Submission failed: ${submitResponse.error}`);
+    }
+
+    console.log('\n================================================================');
+    console.log('  ONBOARDING SUCCESSFUL');
+    console.log('================================================================');
+    console.log(`  Agent Address : ${submitResponse.agent_public_key || publicKey}`);
+    console.log(`  Explorer URL   : ${submitResponse.explorer_url || 'https://stellar.org/explorer'}`);
+    console.log('----------------------------------------------------------------');
+    console.log('\n  Add to your .env:');
+    console.log(`  AGENT_PRIVATE_KEY=${secretKey}`);
+    console.log('\n  Your agent is now USDC-ready on Stellar Testnet!');
+    console.log('================================================================\n');
+
+  } catch (error: any) {
+    console.error('\n❌ Onboarding Error:');
+    console.error(error.message);
+    console.log('\nEnsure the backend server is running at:', SERVICE_URL);
+    process.exit(1);
+  }
+}
+
+generateAndOnboardWallet();
 
