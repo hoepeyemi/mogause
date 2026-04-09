@@ -28,8 +28,9 @@ async function generateAndOnboardWallet() {
     console.log('----------------------------------------------------------------');
 
     // 2. Request sponsored account from SYNERGI backend
+    // Using the /create endpoint as per the provided guide
     console.log('\nRequesting sponsored account and USDC trustline...');
-    const createResponse = await fetch(`${SERVICE_URL}/api/agent/onboard`, {
+    const createResponse = await fetch(`${SERVICE_URL}/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ public_key: publicKey }),
@@ -46,7 +47,8 @@ async function generateAndOnboardWallet() {
     const tx = StellarSdk.TransactionBuilder.fromXDR(xdr, network_passphrase);
     tx.sign(agent);
 
-    const submitResponse = await fetch(`${SERVICE_URL}/api/agent/submit`, {
+    // Using the /submit endpoint as per the provided guide
+    const submitResponse = await fetch(`${SERVICE_URL}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ xdr: tx.toXDR() }),

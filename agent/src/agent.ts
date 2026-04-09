@@ -158,8 +158,11 @@ async function discoverTools(): Promise<Tool[]> {
     console.log(`[AGENT] [OK] Found ${availableTools.length} Worker Agents:`);
     availableTools.forEach(t => {
       const subLabel = t.canHireSubAgents ? ' [A2A-ENABLED]' : '';
+      const priceXLM = typeof t.price === 'object' && t.price.XLM !== undefined 
+        ? t.price.XLM.toString() 
+        : (t.price || '0').toString();
       console.log(
-        `  ├─ ${t.name.padEnd(22)} ${t.price.XLM.toString().padEnd(6)} XLM | Rep: ${t.reputation}/100 | Jobs: ${t.jobsCompleted}${subLabel}`
+        `  ├─ ${t.name.padEnd(22)} ${priceXLM.padEnd(6)} XLM | Rep: ${t.reputation}/100 | Jobs: ${t.jobsCompleted}${subLabel}`
       );
     });
     return availableTools;
