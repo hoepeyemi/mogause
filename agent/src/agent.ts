@@ -18,6 +18,7 @@
 import axios, { AxiosInstance } from 'axios';
 import dotenv from 'dotenv';
 import StellarSdk from '@stellar/stellar-sdk';
+import { Mppx, stellar } from '@stellar/mpp/charge/client';
 import * as readline from 'readline';
 import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -42,6 +43,16 @@ if (!PRIVATE_KEY) {
 
 // Stellar Setup
 const alice = StellarSdk.Keypair.fromSecret(PRIVATE_KEY);
+
+// Initialize MPP Client for automatic 402 handling
+Mppx.create({
+  methods: [
+    stellar.charge({
+      keypair: alice,
+    }),
+  ],
+});
+
 const api: AxiosInstance = axios.create({ baseURL: SERVER_URL });
 
 // AI Clients
