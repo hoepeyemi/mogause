@@ -1,24 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { authenticate, userSession, sign_out } from '../lib/userSession';
-import type { UserData } from '@stacks/connect';
+import React from 'react';
+import { useWallet } from '../lib/WalletProvider';
 
 export default function ConnectWalletButton() {
-  const [mounted, setMounted] = useState(false);
-  const [user, setUser] = useState<UserData | null>(null);
+  const { address, connect, disconnect, isConnected } = useWallet();
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMounted(true);
-    if (userSession.isUserSignedIn()) {
-      setUser(userSession.loadUserData());
-    }
-  }, []);
-
-  if (!mounted) return null;
-
-  if (user && user.profile && user.profile.stxAddress) {
+  if (isConnected && address) {
     return (
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <div style={{
@@ -31,13 +19,10 @@ export default function ConnectWalletButton() {
            fontWeight: 600,
            fontFamily: 'var(--font-mono)',
         }}>
-          {user.profile.stxAddress.testnet.slice(0, 6)}...{user.profile.stxAddress.testnet.slice(-4)}
+          {address.slice(0, 6)}...{address.slice(-4)}
         </div>
         <button
-          onClick={() => {
-            sign_out();
-            window.location.reload();
-          }}
+          onClick={disconnect}
           style={{
             padding: '8px 12px',
             borderRadius: 8,
@@ -57,7 +42,7 @@ export default function ConnectWalletButton() {
 
   return (
     <button
-      onClick={() => authenticate()}
+      onClick={connect}
       style={{
         padding: '8px 16px',
         borderRadius: 8,

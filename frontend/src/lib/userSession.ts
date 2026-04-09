@@ -1,30 +1,24 @@
-import { AppConfig, UserSession, showConnect } from '@stacks/connect';
+// Re-export wallet utilities from WalletProvider for backward compatibility
+// New code should use the useWallet hook directly
 
-const appConfig = new AppConfig(['store_write', 'publish_data']);
+export { useWallet } from './WalletProvider';
+export type { WalletContextType } from './WalletProvider';
 
-export const userSession = new UserSession({ appConfig });
+/**
+ * @deprecated Use useWallet hook instead
+ * This file is kept for backward compatibility during migration
+ */
+export const userSession = null;
 
 export function authenticate() {
-  showConnect({
-    appDetails: {
-      name: 'SYNERGI - x402 Ecosystem',
-      icon: window.location.origin + '/logo.png',
-    },
-    redirectTo: '/',
-    onFinish: () => {
-      window.location.reload();
-    },
-    userSession,
-  });
+  console.warn('authenticate() is deprecated. Use the useWallet hook instead.');
 }
 
 export function getUserData() {
-  if (userSession.isUserSignedIn()) {
-    return userSession.loadUserData();
-  }
+  console.warn('getUserData() is deprecated. Use the useWallet hook instead.');
   return null;
 }
 
 export function sign_out() {
-  userSession.signUserOut("/");
+  console.warn('sign_out() is deprecated. Use the disconnect method from useWallet hook instead.');
 }

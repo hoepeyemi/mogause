@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import * as StellarSdk from "@stellar/stellar-sdk";
 
 const AGENT_PRIVATE_KEY = process.env.NEXT_PUBLIC_AGENT_PRIVATE_KEY || '';
 const SERVER_ADDRESS = process.env.NEXT_PUBLIC_SERVER_ADDRESS || '';
 
 export default function WalletInfo() {
-  const shortAddr = (addr: string) => `${addr.slice(0, 8)}…${addr.slice(-6)}`;
+  const shortAddr = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
   const shortKey = (key: string) => `${key.slice(0, 6)}…${key.slice(-4)}`;
   const [balance, setBalance] = useState<string | null>(null);
 
@@ -18,16 +19,18 @@ export default function WalletInfo() {
         const id = setTimeout(() => controller.abort(), 5000);
 
         try {
-          const res = await fetch(`https://api.testnet.hiro.so/extended/v1/address/${SERVER_ADDRESS}/balances`, {
-            signal: controller.signal
-          });
+          // Use Stellar Horizon API for balance
+          const server = new StellarSdk.Horizon.Server('https://horizon-testnet.stellar.org');
+          const account = await server.loadAccount(SERVER_ADDRESS);
           clearTimeout(id);
 
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-          const data = await res.json();
-          const stx = data.stx.balance; // MicroSTX
-          setBalance((parseInt(stx) / 1000000).toFixed(2));
+          // Find XLM balance
+          const xlmBalance = account.balances.find((b: any) => b.asset_type === 'native');
+          if (xlmBalance) {
+            setBalance(parseFloat(xlmBalance.balance).toFixed(2));
+          } else {
+            setBalance('0.00');
+          }
         } catch (innerErr) {
           clearTimeout(id);
           throw innerErr;
@@ -40,7 +43,7 @@ export default function WalletInfo() {
     fetchBalance();
     const interval = setInterval(fetchBalance, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [SERVER_ADDRESS]);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -57,7 +60,7 @@ export default function WalletInfo() {
           boxShadow: '0 0 6px rgba(255,133,75,0.6)',
         }} />
         <span style={{ fontSize: '0.6rem', color: '#FF854B', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-          TESTNET
+          STELLAR TESTNET
         </span>
       </div>
 
@@ -74,7 +77,7 @@ export default function WalletInfo() {
         }}>
           {shortAddr(SERVER_ADDRESS)}
           <span style={{ marginLeft: 6, color: 'var(--accent-primary)', fontWeight: 700 }}>
-            {balance ? `${balance} STX` : '...'}
+            {balance ? `${balance} XLM` : '...'}
           </span>
         </div>
       </div>

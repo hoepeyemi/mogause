@@ -2,11 +2,14 @@
 
 import React from 'react';
 import { LanguageProvider } from '@/lib/LanguageContext';
+import { WalletProvider } from '@/lib/WalletProvider';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <LanguageProvider>
-      {children}
-    </LanguageProvider>
+    <WalletProvider>
+      <LanguageProvider>
+        {children}
+      </LanguageProvider>
+    </WalletProvider>
   );
 }
