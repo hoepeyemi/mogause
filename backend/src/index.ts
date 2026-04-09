@@ -36,17 +36,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import {
-  paymentMiddleware,
-  getPayment,
-  STXtoMicroSTX,
-  BTCtoSats,
-  getDefaultSBTCContract,
-  getExplorerURL,
-  wrapAxiosWithPayment,
-  privateKeyToAccount,
-  decodePaymentResponse,
-} from 'x402-stacks';
+import { Mppx, stellar } from '@stellar/mpp/charge/server';
+import { XLM_SAC_TESTNET } from '@stellar/mpp';
+import { Keypair } from '@stellar/stellar-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
 import axios from 'axios';
@@ -60,26 +52,38 @@ dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '4002', 10);
 const HOST = process.env.HOST || '0.0.0.0';
-const NETWORK = (process.env.STACKS_NETWORK as 'testnet' | 'mainnet') || 'testnet';
-const SERVER_ADDRESS = process.env.SERVER_ADDRESS || 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM';
-const FACILITATOR_URL = process.env.X402_FACILITATOR_URL || process.env.FACILITATOR_URL || 'https://x402-facilitator.onrender.com';
-const EXPLORER_BASE = 'https://explorer.hiro.so';
+const NETWORK = (process.env.STELLAR_NETWORK as 'stellar:testnet' | 'stellar:pubnet') || 'stellar:testnet';
+const SERVER_ADDRESS = process.env.SERVER_ADDRESS || 'G...'; // Your Stellar Public Key
+const EXPLORER_BASE = 'https://stellar.org/explorer';
 const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY;
+
+// Initialize Mppx Server for Charge Payments
+const mppx = Mppx.create({
+  secretKey: AGENT_PRIVATE_KEY,
+  methods: [
+    stellar.charge({
+      recipient: SERVER_ADDRESS,
+      currency: XLM_SAC_TESTNET,
+      network: NETWORK,
+    }),
+  ],
+});
 
 if (!AGENT_PRIVATE_KEY) {
   console.warn('[WARN] AGENT_PRIVATE_KEY not set. Agent will use simulated payments.');
 }
-
-const agentAccount = AGENT_PRIVATE_KEY ? privateKeyToAccount(AGENT_PRIVATE_KEY, NETWORK) : null;
-const agentClient = AGENT_PRIVATE_KEY
-  ? wrapAxiosWithPayment(axios.create({ baseURL: `http://127.0.0.1:${PORT}` }) as any, agentAccount as any)
-  : null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Express App
 // ═══════════════════════════════════════════════════════════════════════════
 
 const app = express();
+
+// Agent Client for A2A calls
+const agentClient = axios.create({
+  baseURL: `http://${HOST}:${PORT}`,
+  headers: { 'Content-Type': 'application/json' },
+});
 
 // AI Clients
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -384,13 +388,11 @@ function logPayment(
   priceConfig: PriceConfig,
   opts: { isA2A?: boolean; depth?: number; parentJobId?: string; workerName?: string } = {}
 ): PaymentLog | null {
-  const payment = getPayment(req);
-  const txId = payment?.transaction || `sim_${(++paymentIdCounter).toString(16).padStart(8, '0')}`;
-  const explorerUrl = getExplorerURL(txId, NETWORK);
+  const mppResult = (req as any).mppResult;
+  const txId = mppResult?.receipt?.transactionHash || `sim_${(++paymentIdCounter).toString(16).padStart(8, '0')}`;
+  const explorerUrl = `${EXPLORER_BASE}/tx/${txId}`;
 
-  const displayAmount = token === 'sBTC'
-    ? `${priceConfig.sbtcSats} sats sBTC`
-    : `${priceConfig.stxAmount} STX`;
+  const displayAmount = `${priceConfig.stxAmount} XLM`;
 
   // Capture raw 402 headers for protocol transparency
   const rawHeaders: Record<string, string> = {};
@@ -404,7 +406,7 @@ function logPayment(
     id: `pay_${(++paymentIdCounter).toString(36)}`,
     timestamp: new Date().toISOString(),
     endpoint,
-    payer: payment?.payer || (opts.isA2A ? 'Manager Agent' : 'User'),
+    payer: mppResult?.payer || (opts.isA2A ? 'Manager Agent' : 'User'),
     worker: opts.workerName || endpoint.split('/').pop() || 'unknown',
     transaction: txId,
     token,
@@ -428,33 +430,31 @@ function logPayment(
 // Token Resolution + Payment Middleware Factory
 // ═══════════════════════════════════════════════════════════════════════════
 
-type TokenType = 'STX' | 'sBTC';
+type TokenType = 'XLM';
 
 function resolveToken(req: Request): TokenType {
-  const fromQuery = (req.query.token as string)?.toUpperCase();
-  const fromHeader = (req.headers['x-token-type'] as string)?.toUpperCase();
-  const token = fromQuery || fromHeader || 'STX';
-  return token === 'SBTC' ? 'sBTC' : 'STX';
+  return 'XLM';
+}
+
+/**
+ * Decodes the x402 payment-response header.
+ * Expected format: "tx:<transaction_hash>" or JSON string.
+ */
+function decodePaymentResponse(header: string): { transaction: string } | null {
+  if (!header) return null;
+  if (header.startsWith('tx:')) {
+    return { transaction: header.slice(3) };
+  }
+  try {
+    const parsed = JSON.parse(header);
+    return parsed.transaction ? { transaction: parsed.transaction } : null;
+  } catch {
+    return { transaction: header };
+  }
 }
 
 function createPaidRoute(config: PriceConfig) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const token = resolveToken(req);
-    const opts: Parameters<typeof paymentMiddleware>[0] = {
-      amount: token === 'sBTC'
-        ? BTCtoSats(config.sbtcSats / 1e8)
-        : STXtoMicroSTX(config.stxAmount),
-      payTo: SERVER_ADDRESS,
-      network: NETWORK,
-      facilitatorUrl: FACILITATOR_URL,
-      description: config.description,
-      ...(token === 'sBTC' && {
-        tokenType: 'sBTC' as const,
-        tokenContract: getDefaultSBTCContract(NETWORK),
-      }),
-    };
-    const middleware = paymentMiddleware(opts);
-
     // Simulation Mode Bypass
     if (process.env.SIMULATION_MODE === 'true') {
       console.warn(`[PAYMENT] [SIMULATION] Bypassing payment for ${req.path}`);
@@ -462,32 +462,33 @@ function createPaidRoute(config: PriceConfig) {
       return;
     }
 
-    // Wrap middleware in a promise with timeout
-    const middlewarePromise = new Promise<void>((resolve, reject) => {
-      middleware(req, res, (err: any) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    // Timeout race
-    const timeoutPromise = new Promise<void>((_, reject) => {
-      setTimeout(() => reject(new Error('Payment facilitator timed out')), 5000)
-    });
-
     try {
-      await Promise.race([middlewarePromise, timeoutPromise]);
+      // Use Mppx charge handler
+      // Note: mppx.charge returns a function that takes the request
+      const chargeHandler = mppx.charge({
+        amount: config.stxAmount.toString(), // Using stxAmount as XLM amount
+        description: config.description,
+      });
+
+      // The MPP SDK expects a standard Request object. 
+      // Express requests are slightly different, so we wrap it or use the handler.
+      // Since Mppx.charge is designed for Web Request/Response, we adapt it.
+      
+      const result = await chargeHandler(req as any);
+
+      if (result.status === 402) {
+        // Return the challenge response (402 Payment Required)
+        return res.status(402).send(result.challenge);
+      }
+
+      // If payment is verified, we can proceed. 
+      // result.withReceipt is used to attach the receipt to the final response.
+      // We store the result on the request for the route handler to use.
+      (req as any).mppResult = result;
       next();
     } catch (error: any) {
-       // If headers sent, we can't do anything more
-      if (res.headersSent) return;
-
-      if (error.message === 'Payment facilitator timed out') {
-        console.warn('[PAYMENT] Facilitator timed out. Bypassing for SIMULATION MODE.')
-        next()
-      } else {
-        next(error);
-      }
+      console.error('[MPP PAYMENT ERROR]', error);
+      res.status(500).json({ error: 'Payment verification failed', message: error.message });
     }
   };
 }
@@ -587,7 +588,6 @@ app.get('/health', (_req: Request, res: Response) => {
     status: 'ok',
     uptime: process.uptime(),
     network: NETWORK,
-    facilitator: FACILITATOR_URL,
     version: '2.0.0',
     agents: agentRegistry.length,
     totalPayments: paymentLogs.length,
@@ -598,11 +598,10 @@ app.get('/', (_req: Request, res: Response) => {
   res.json({
     name: 'SYNERGI — x402 Autonomous Agent Economy',
     version: '2.0.0',
-    description: 'Agent-to-Agent micropayment marketplace on Stacks via x402',
+    description: 'Agent-to-Agent micropayment marketplace on Stellar via x402',
     network: NETWORK,
-    facilitator: FACILITATOR_URL,
     protocol: 'x402 (HTTP 402 Payment Required)',
-    tokenSupport: ['STX', 'sBTC'],
+    tokenSupport: ['XLM'],
     features: [
       'Agent-to-Agent (A2A) recursive hiring',
       'On-chain reputation system',
@@ -1420,7 +1419,7 @@ interface AgentExecutionResult {
     error?: string;
   }>;
   finalAnswer: string;
-  totalCost: { STX: number; sBTC_sats: number };
+  totalCost: { XLM: number; sBTC_sats: number };
   a2aDepth: number;
   protocolTrace: Array<{
     step: string;
@@ -1485,7 +1484,7 @@ async function runManagerAgent(
   const hiringDecisions: AgentExecutionResult['hiringDecisions'] = [];
   const protocolTrace: AgentExecutionResult['protocolTrace'] = [];
   const results: AgentExecutionResult['results'] = [];
-  const totalCost = { STX: 0, sBTC_sats: 0 };
+  const totalCost = { XLM: 0, sBTC_sats: 0 };
   let a2aDepth = 0;
 
   // ── Step 1: Analyze Intent ──
@@ -1506,10 +1505,10 @@ async function runManagerAgent(
   // ── Step 2: LLM Planning ──
   // ── Step 2: LLM Planning ──
   const toolsList = agentRegistry.map(agent => {
-    return `- "${agent.id}": ${agent.category} Agent | Cost: ${agent.priceSTX} STX | Reputation: ${agent.reputation}/100`;
+    return `- "${agent.id}": ${agent.category} Agent | Cost: ${agent.priceSTX} XLM | Reputation: ${agent.reputation}/100`;
   }).join('\n');
 
-  const plannerPrompt = `You are the MANAGER AGENT of an autonomous AI economy on Stacks blockchain.
+  const plannerPrompt = `You are the MANAGER AGENT of an autonomous AI economy on Stellar blockchain.
 You have a budget and must hire the BEST specialized Worker Agents to complete the user's task.
 
 Available Worker Agents (x402 paid APIs):
@@ -1606,15 +1605,14 @@ Return ONLY valid JSON:
       continue;
     }
 
-    // ── Budget Guard ──
-    if (totalCost.STX + price.stxAmount > budgetLimit) {
-      console.warn(`[BUDGET GUARD] Transaction blocked. Cost ${price.stxAmount} exceed remaining budget of ${budgetLimit - totalCost.STX} STX`);
+    if (totalCost.XLM + price.stxAmount > budgetLimit) {
+      console.warn(`[BUDGET GUARD] Transaction blocked. Cost ${price.stxAmount} exceed remaining budget of ${budgetLimit - totalCost.XLM} XLM`);
       results.push({
         tool: toolId,
         result: null,
-        error: `Budget limit reached (${budgetLimit} STX). Arbitrator Agent could be hired to request a budget increase.`
+        error: `Budget limit reached (${budgetLimit} XLM). Arbitrator Agent could be hired to request a budget increase.`
       });
-      plan.push(`[GUARD] Blocked ${toolId}: Budget Limit (${budgetLimit} STX) exceeded.`);
+      plan.push(`[GUARD] Blocked ${toolId}: Budget Limit (${budgetLimit} XLM) exceeded.`);
       continue;
     }
 
@@ -1655,7 +1653,7 @@ Return ONLY valid JSON:
       });
     }
 
-    totalCost.STX += price.stxAmount;
+    totalCost.XLM += price.stxAmount;
     totalCost.sBTC_sats += price.sbtcSats;
 
     // ── Execute the tool call (with x402 payment) ──
@@ -1690,8 +1688,8 @@ Return ONLY valid JSON:
           payment = {
             transaction: paymentInfo.transaction,
             token,
-            amount: `${price.stxAmount} STX`,
-            explorerUrl: getExplorerURL(paymentInfo.transaction, NETWORK),
+            amount: `${price.stxAmount} XLM`,
+            explorerUrl: `${EXPLORER_BASE}/tx/${paymentInfo.transaction}`,
           };
         }
 
@@ -1703,7 +1701,7 @@ Return ONLY valid JSON:
         // Track sub-agent hires from recursive agents
         if (data.subAgentHires) {
           a2aDepth = Math.max(a2aDepth, data.recursiveDepth || 1);
-          totalCost.STX += (data.totalCostIncludingSubAgents || 0) - price.stxAmount;
+          totalCost.XLM += (data.totalCostIncludingSubAgents || 0) - price.stxAmount;
         }
 
         // Protocol trace
@@ -1789,15 +1787,15 @@ Return ONLY valid JSON:
               // Fallback payment record
               payment = {
                 transaction: `heal_${toolId}_${Math.random().toString(16).slice(2, 10)}`,
-                token: token || 'STX',
-                amount: `${fallbackAgent.priceSTX} STX`,
+                token: token || 'XLM',
+                amount: `${fallbackAgent.priceSTX} XLM`,
                 explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
                 selfHealed: true,
                 originalAgent: agentName,
                 fallbackAgent: fallbackName,
               };
 
-              totalCost.STX += fallbackAgent.priceSTX;
+              totalCost.XLM += fallbackAgent.priceSTX;
 
               results.push({
                 tool: `${fallbackName} (healed from ${agentName})`,
@@ -1854,9 +1852,9 @@ Return ONLY valid JSON:
       // Simulation mode
       payment = {
         transaction: `sim_${toolId}_${Math.random().toString(16).slice(2, 10)}`,
-        token: token || 'STX',
-        amount: `${price.stxAmount} STX`,
-        explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
+        token: token || 'XLM',
+        amount: `${price.stxAmount} XLM`,
+        explorerUrl: `${EXPLORER_BASE}/tx/sim_${toolId}`,
       };
 
       paymentLogs.push({
@@ -1881,16 +1879,16 @@ Return ONLY valid JSON:
       const subHires: any[] = [];
       if (toolId === 'research') {
         const subPay = createL2Settlement('DeepResearch Alpha', 'Summarizer Pro', PRICES.summarize, token, 1);
-        subHires.push({ agent: 'Summarizer Pro', task: 'Condense findings', cost: `${PRICES.summarize.stxAmount} STX`, payment: subPay });
+        subHires.push({ agent: 'Summarizer Pro', task: 'Condense findings', cost: `${PRICES.summarize.stxAmount} XLM`, payment: subPay });
         const subPay2 = createL2Settlement('DeepResearch Alpha', 'SentimentAI', PRICES.sentiment, token, 1);
-        subHires.push({ agent: 'SentimentAI', task: 'Tone analysis', cost: `${PRICES.sentiment.stxAmount} STX`, payment: subPay2 });
-        totalCost.STX += PRICES.summarize.stxAmount + PRICES.sentiment.stxAmount;
+        subHires.push({ agent: 'SentimentAI', task: 'Tone analysis', cost: `${PRICES.sentiment.stxAmount} XLM`, payment: subPay2 });
+        totalCost.XLM += PRICES.summarize.stxAmount + PRICES.sentiment.stxAmount;
         a2aDepth = Math.max(a2aDepth, 1);
       }
       if (toolId === 'coding') {
         const subPay = createL2Settlement('SeniorCoder GPT', 'CodeExplainer', PRICES.codeExplain, token, 1);
-        subHires.push({ agent: 'CodeExplainer', task: 'Quality review', cost: `${PRICES.codeExplain.stxAmount} STX`, payment: subPay });
-        totalCost.STX += PRICES.codeExplain.stxAmount;
+        subHires.push({ agent: 'CodeExplainer', task: 'Quality review', cost: `${PRICES.codeExplain.stxAmount} XLM`, payment: subPay });
+        totalCost.XLM += PRICES.codeExplain.stxAmount;
         a2aDepth = Math.max(a2aDepth, 1);
       }
 
@@ -1972,9 +1970,9 @@ Return ONLY valid JSON:
     sendSSETo(clientId, 'done', { duration: Date.now() - startTime });
   }
 
-  plan.push(`Total cost: ${totalCost.STX.toFixed(4)} STX`);
-  plan.push(`A2A depth: ${a2aDepth}`);
-  plan.push(`Duration: ${Date.now() - startTime}ms`);
+plan.push(`Total cost: ${totalCost.XLM.toFixed(4)} XLM`);
+    plan.push(`A2A depth: ${a2aDepth}`);
+    plan.push(`Duration: ${Date.now() - startTime}ms`);
 
   return {
     query,
@@ -1983,7 +1981,7 @@ Return ONLY valid JSON:
     results,
     finalAnswer,
     totalCost: {
-      STX: Math.round(totalCost.STX * 10000) / 10000,
+      XLM: Math.round(totalCost.XLM * 10000) / 10000,
       sBTC_sats: totalCost.sBTC_sats,
     },
     a2aDepth,
@@ -2202,7 +2200,7 @@ app.post('/api/agent/arbitrate', createPaidRoute(PRICES.arbitrator), async (req:
     res.json({
       result: explanation,
       judgement: 'FINAL_AND_BINDING',
-      facilitatorUrl: getExplorerURL('', NETWORK),
+      facilitatorUrl: `${EXPLORER_BASE}`,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2397,13 +2395,12 @@ app.listen(PORT, HOST, () => {
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════╗');
   console.log('║  SYNERGI — x402 Autonomous Agent Economy                   ║');
-  console.log('║  Agent-to-Agent Micropayment Marketplace on Stacks         ║');
+  console.log('║  Agent-to-Agent Micropayment Marketplace on Stellar        ║');
   console.log('╠══════════════════════════════════════════════════════════════╣');
   console.log(`║  Server      : http://${HOST}:${PORT}`);
   console.log(`║  Network     : ${NETWORK}`);
-  console.log(`║  Facilitator : ${FACILITATOR_URL}`);
+  console.log('║  Protocol    : x402 (MPP)');
   console.log(`║  Agents      : ${agentRegistry.length} registered`);
-  console.log(`║  Agent Wallet: ${agentAccount ? agentAccount.address : 'Simulation Mode'}`);
   console.log('╠══════════════════════════════════════════════════════════════╣');
   console.log('║  Paid Endpoints (Worker Agents):');
   Object.entries(PRICES).forEach(([id, p]) => {
