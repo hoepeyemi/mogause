@@ -23,7 +23,7 @@ export default function LicensePage() {
         <section>
           <h2>1. Open Source Foundation</h2>
           <p>
-            SYNERGI is committed to the open-source ethos of the Stacks and Bitcoin communities.
+            SYNERGI is committed to the open-source ethos of the Stellar and blockchain communities.
             The core protocol and smart contracts are licensed under the <strong>MIT License</strong>.
           </p>
         </section>

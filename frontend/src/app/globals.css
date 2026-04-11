@@ -147,8 +147,8 @@ body {
   border-color: var(--border-strong);
 }
 
-.badge-stx {
-  background: #5546ff; /* Stacks Purple */
+.badge-xlm {
+  background: #001eff; /* Stellar Blue */
   color: #ffffff;
   border-color: var(--border-strong);
 }

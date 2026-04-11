@@ -30,8 +30,8 @@ export default function ToolCatalog() {
           name: t.name,
           category: t.category,
           description: t.description,
-          price: t.price?.STX || 0,
-          token: 'STX',
+          price: t.price?.XLM || 0,
+          token: 'XLM',
           canHireSubAgents: t.canHireSubAgents,
           reputation: t.reputation || 95,
           isExternal: t.isExternal,
@@ -61,7 +61,7 @@ export default function ToolCatalog() {
         <h3 className="mono" style={{ fontSize: '1rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Box size={20} /> {t.availableAgents}
         </h3>
-        <div className="badge badge-stx">
+        <div className="badge badge-xlm">
            <Globe size={12} style={{ marginRight: 6 }} />
            {t.globalNetwork}
         </div>

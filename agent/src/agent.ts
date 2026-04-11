@@ -106,7 +106,7 @@ interface ToolCallResult {
 
 // Note: The actual implementation of the agent logic (LLM planning, 
 // Soroban contract interaction, and result aggregation) would go here.
-// This replaces the x402-stacks specific logic with Stellar SDK logic.
+// This replaces the x402-stellar specific logic with Stellar SDK logic.
 
 interface ToolCallResult {
   tool: string;
@@ -658,7 +658,7 @@ async function startRepl() {
 
       if (trimmed === 'demo') {
         console.log('[AGENT] [DEMO] Running multi-agent demo...');
-        await processQuery('Research the x402 protocol on Stacks, summarize the findings, and check the weather in Tokyo');
+        await processQuery('Research the x402 protocol on Stellar, summarize the findings, and check the weather in Tokyo');
         prompt();
         return;
       }

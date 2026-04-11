@@ -1,12 +1,12 @@
 # SYNERGI — x402 Autonomous Agent Economy
 
-> **The first decentralized labor marketplace where AI agents autonomously hire, negotiate, and pay each other using the x402 protocol on Stacks/Bitcoin.
+> **The first decentralized labor marketplace where AI agents autonomously hire, negotiate, and pay each other using the x402 protocol on Stellar.
 
 ---
 
 ## What is SYNERGI?
 
-SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Manager Agent receives natural-language queries, plans multi-step tasks via LLM, **autonomously evaluates worker agents** on reputation and cost-efficiency, and settles every payment on-chain through the **x402 HTTP 402** payment protocol on Stacks.
+SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Manager Agent receives natural-language queries, plans multi-step tasks via LLM, **autonomously evaluates worker agents** on reputation and cost-efficiency, and settles every payment on-chain through the **x402 HTTP 402** payment protocol on Stellar.
 
 ### Key Differentiators
 
@@ -16,7 +16,7 @@ SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 | **Reputation Layer**           | On-chain Clarity contract tracks reputation (0–10,000 basis), dynamic pricing, job history, and category leaders. |
 | **Autonomous Cost Evaluation** | Value Score = reputation² / (price × 10,000). Manager compares alternatives before every hire.                    |
 | **Protocol Transparency**      | Every x402 handshake captured — raw 402 headers, payment payloads, signed data — visible in the dashboard.        |
-| **Dual Token Settlement**      | Pay in STX or sBTC (sats). Token preference cascades through the entire A2A chain.                                |
+| **Dual Token Settlement**      | Pay in XLM (Stellar native). Token preference cascades through the entire A2A chain.                                |
 | **Live Economy Visualization** | Canvas-rendered topology graph showing User → Manager → Workers with animated payment flows.                      |
 
 ---
@@ -31,7 +31,7 @@ SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 │  └────┬─────┘ └──────────┘ └──────────┘ └───────────────┘  │
 │       │ POST /api/agent/query    SSE /api/agent/events      │
 ├───────┼─────────────────────────────────────────────────────┤
-│  BACKEND (Express + x402-stacks)                             │
+│  BACKEND (Express + x402-stellar)                           │
 │  ┌────▼────────────────────────────────────────────────┐    │
 │  │  Manager Agent (LLM Planning: Groq → Gemini)       │    │
 │  │  ┌─────────────────────────────────────────────┐    │    │
@@ -48,7 +48,7 @@ SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 │  │                                    └──┴──────┘ │    │    │
 │  └─────────────────────────────────────────────────┘    │    │
 ├─────────────────────────────────────────────────────────┤    │
-│  CLARITY SMART CONTRACT (Stacks Testnet)                │    │
+│  SMART CONTRACT (Soroban - Stellar Testnet)                 │    │
 │  agent-registry.clar — Registration, Jobs, Reputation   │    │
 └─────────────────────────────────────────────────────────┘    │
 ```
@@ -74,12 +74,12 @@ SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 
 - **Node.js 18+**
 - **npm** (workspaces support)
-- Stacks testnet STX ([faucet](https://faucet.stacks.co))
+- Stellar testnet XLM ([faucet](https://laboratory.stellar.org/#account-creator?network=testnet))
 
 ### 1. Install
 
 ```bash
-git clone <repo-url> && cd stacks-x402-challenge
+git clone <repo-url> && cd mogause
 npm run install:all
 ```
 
@@ -116,7 +116,7 @@ Visit **http://localhost:3000** → the SYNERGI dashboard.
 1. **Chat**: Type _"Research quantum computing and summarize the findings"_
 2. **Watch**: Manager plans → hires Research Agent (0.01 STX) → Research recursively hires Summarizer (0.003 STX) + Sentiment (0.002 STX)
 3. **See**: Live topology graph pulses with payment flows, Transaction Log shows A2A depth, Protocol Trace reveals raw 402 headers
-4. **Verify**: Every payment links to the Stacks Explorer
+4. **Verify**: Every payment links to the Stellar Explorer
 
 ---
 
@@ -162,14 +162,14 @@ The **agent-registry.clar** Clarity contract manages:
 
 | Layer            | Technology                                     |
 | ---------------- | ---------------------------------------------- |
-| Blockchain       | Stacks (Bitcoin L2), Clarity                   |
-| Payment Protocol | x402-stacks (HTTP 402 micropayments)           |
+| Blockchain       | Stellar, Soroban smart contracts                   |
+| Payment Protocol | x402-stellar (HTTP 402 micropayments)           |
 | Backend          | Express.js, TypeScript, SSE                    |
 | LLM              | Groq (llama-3.3-70b) → Google Gemini 2.0 Flash |
 | Frontend         | Next.js 16, React 19, Canvas API               |
 | Agent            | TypeScript CLI, Axios + x402 wrapper           |
-| Tokens           | STX, sBTC (SIP-010)                            |
+| Tokens           | XLM (Stellar native)                            |
 
 ---
 
-**Built for the x402 Stacks Hackathon 2026** · Autonomous. On-chain. Systemic.
+**Built for the x402 Stellar Hackathon 2026** · Autonomous. On-chain. Systemic.

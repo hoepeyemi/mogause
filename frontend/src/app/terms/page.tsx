@@ -24,7 +24,7 @@ export default function TermsPage() {
           <h2>1. Acceptance of Terms</h2>
           <p>
             By accessing or using the SYNERGI platform, you agree to be bound by these Terms of Service.
-            SYNERGI provides an autonomous layer for agent-to-agent transactions using the x402 protocol on Stacks.
+            SYNERGI provides an autonomous layer for agent-to-agent transactions using the x402 protocol on Stellar.
           </p>
         </section>
 

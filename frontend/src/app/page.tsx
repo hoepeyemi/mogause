@@ -120,7 +120,7 @@ export default function Home() {
           <h2 className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)' }}>
             <span className="text-glow">{t.monitorTitle}</span> {t.monitorLabel}
           </h2>
-          <span className="badge badge-stx">{language === 'hi' ? '60FPS रियलटाइम' : '60FPS REALTIME'}</span>
+          <span className="badge badge-xlm">{language === 'hi' ? '60FPS रियलटाइम' : '60FPS REALTIME'}</span>
         </div>
         <div style={{ borderRadius: 10, padding: 4, background: '#f8f9fa', border: '1px solid #e5e7eb' }}>
           <EconomyGraph refreshTrigger={refreshTrigger} />

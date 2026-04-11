@@ -1,14 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import {
-  StellarWalletsKit,
-  Networks,
-} from "@creit.tech/stellar-wallets-kit";
+import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
+import { SwkAppDarkTheme } from "@creit.tech/stellar-wallets-kit/types";
+import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
+import { KitEventType, Networks } from "@creit.tech/stellar-wallets-kit/types";
 import * as StellarSdk from "@stellar/stellar-sdk";
 
 interface WalletContextType {
-  kit: StellarWalletsKit | null;
   address: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -20,34 +19,56 @@ const WalletContext = createContext<WalletContextType | null>(null);
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
-  const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     // Initialize the kit on mount (client-side only)
     const initializeKit = async () => {
-      // Set network first (static method)
-      StellarWalletsKit.setNetwork(Networks.TESTNET);
-      
-      // Create new kit instance
-      const newKit = new StellarWalletsKit();
-      setKit(newKit);
-      setMounted(true);
+      try {
+        // Initialize StellarWalletsKit
+        StellarWalletsKit.init({
+          theme: SwkAppDarkTheme,
+          modules: defaultModules(),
+          network: Networks.TESTNET,
+        });
 
-      // Check if wallet was previously connected
-      const savedWalletId = localStorage.getItem('synergi_wallet_id');
-      if (savedWalletId) {
+        // Try to restore previous connection
         try {
-          // Set the wallet using static method
-          await StellarWalletsKit.setWallet(savedWalletId);
-          const addr = await StellarWalletsKit.getAddress();
-          if (addr && addr.address) {
-            setAddress(addr.address);
+          const { address: savedAddress } = await StellarWalletsKit.getAddress();
+          if (savedAddress) {
+            setAddress(savedAddress);
           }
         } catch {
-          // Wallet not available, clear saved selection
-          localStorage.removeItem('synergi_wallet_id');
+          // No previous connection, that's fine
         }
+
+        // Listen for address changes
+        const unsubscribe = StellarWalletsKit.on(
+          KitEventType.STATE_UPDATED,
+          (event: any) => {
+            if (event.payload?.address) {
+              setAddress(event.payload.address);
+            }
+          }
+        );
+
+        // Listen for disconnects
+        const unsubscribeDisconnect = StellarWalletsKit.on(
+          KitEventType.DISCONNECT,
+          () => {
+            setAddress(null);
+          }
+        );
+
+        setMounted(true);
+
+        return () => {
+          unsubscribe();
+          unsubscribeDisconnect();
+        };
+      } catch (error) {
+        console.error("Failed to initialize StellarWalletsKit:", error);
+        setMounted(true);
       }
     };
 
@@ -55,32 +76,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const connect = useCallback(async () => {
-    if (!kit) return;
-
     try {
-      // Since static methods are failing, we use the instance 'kit'
-      // and a fallback to 'freighter' if the SDK doesn't provide a list
-      const walletId = 'freighter';
-      
-      await StellarWalletsKit.setWallet(walletId);
-      localStorage.setItem('synergi_wallet_id', walletId);
-      
-      const addr = await StellarWalletsKit.getAddress();
-      if (addr && typeof addr === 'object' && 'address' in addr) {
-        setAddress((addr as any).address);
-      } else if (typeof addr === 'string') {
-        setAddress(addr);
-      }
+      const { address } = await StellarWalletsKit.authModal();
+      setAddress(address);
     } catch (error) {
       console.error("Connection failed:", error);
     }
-  }, [kit]);
+  }, []);
 
   const disconnect = useCallback(() => {
     setAddress(null);
-    localStorage.removeItem('synergi_wallet_id');
-    // Reset to default wallet
-    StellarWalletsKit.setWallet('freighter');
+    try {
+      StellarWalletsKit.disconnect();
+    } catch (error) {
+      console.error("Disconnect failed:", error);
+    }
   }, []);
 
   const signTransaction = useCallback(async (transactionXdr: string): Promise<string> => {
@@ -112,7 +122,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WalletContext.Provider value={{ 
-      kit, 
       address, 
       connect, 
       disconnect,
