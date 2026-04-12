@@ -21,9 +21,12 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 
+RUN mkdir -p /data /tmp/mogause && chmod 1777 /tmp/mogause
+
 # Defaults (override at runtime)
 ENV PORT=4002
 ENV HOST=0.0.0.0
+ENV MOGAUSE_DATA_DIR=/data
 
 # Server
 # PORT, HOST, CORS_ORIGIN
@@ -36,6 +39,7 @@ ENV HOST=0.0.0.0
 # SPONSOR_SECRET_KEY, CHANNEL_SECRET_KEYS, USDC_ISSUER, MAX_TX_FEE, MAX_STARTING_BALANCE, CHANNEL_RESERVATION_TTL_MS
 # Ops
 # SIMULATION_MODE, RATE_LIMIT_PER_IP_WINDOW_MS, RATE_LIMIT_PER_IP_MAX, CONTRACT_ADDRESS
+# Docker: MOGAUSE_DATA_DIR (default /data), scratch /tmp/mogause (tmpfs in compose)
 
 EXPOSE 4002
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

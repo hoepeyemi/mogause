@@ -1,15 +1,22 @@
-# mogause — local / demo stack (browser calls API on host-published port)
+# mogause — Docker Compose (all env from repo root: docker.env)
 #
-# 1. cp backend/.env.example backend/.env  &&  fill secrets (AGENT_PRIVATE_KEY, GROQ_API_KEY, …)
-# 2. cp agent/.env.example agent/.env       &&  set AGENT_PRIVATE_KEY, GROQ_API_KEY, AGENT_SERVER_URL
-# 3. cp docker/env.compose.example .env.compose  (optional — sets NEXT_PUBLIC_* for frontend build)
-# 4. docker compose up -d --build
-#    (-d = detached; restart policies keep services up after crashes / host reboot)
+# 1. cp docker.env.example docker.env
+# 2. Edit docker.env (keys, secrets, NEXT_PUBLIC_API_URL for your host / domain)
+# 3. docker compose --env-file docker.env up -d --build
+#    or: npm run docker:up
 #
-# Frontend must use a URL the *browser* can reach (usually http://localhost:4002 when backend publishes 4002).
-# The CLI agent container uses http://backend:4002 on the Docker network.
+# Storage (see docker.env.example “Storage” section):
+#   Persistent named volumes — survive container recreate
+#   tmpfs — ephemeral cache/scratch (lost when container is removed)
+#
+# To attach existing volumes, copy docker-compose.override.example.yml →
+# docker-compose.override.yml and set external: true + volume name.
 
 name: mogause
+
+volumes:
+  mogause_backend_data:
+  mogause_frontend_data:
 
 services:
   backend:
@@ -20,10 +27,13 @@ services:
     ports:
       - "${BACKEND_PUBLISH_PORT:-4002}:4002"
     env_file:
-      - ./backend/.env
-    environment:
-      PORT: "4002"
-      HOST: "0.0.0.0"
+      - ./docker.env
+    volumes:
+      - mogause_backend_data:/data
+      - type: tmpfs
+        target: /tmp/mogause
+        tmpfs:
+          size: 268435456
 
   frontend:
     build:
@@ -37,6 +47,18 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_PUBLISH_PORT:-3000}:3000"
+    env_file:
+      - ./docker.env
+    volumes:
+      - mogause_frontend_data:/opt/run/data
+      - type: tmpfs
+        target: /opt/run/.next/cache
+        tmpfs:
+          size: 536870912
+      - type: tmpfs
+        target: /tmp/mogause
+        tmpfs:
+          size: 268435456
     depends_on:
       - backend
 
@@ -48,8 +70,11 @@ services:
     stdin_open: true
     tty: true
     env_file:
-      - ./agent/.env
-    environment:
-      AGENT_SERVER_URL: ${AGENT_SERVER_URL:-http://backend:4002}
+      - ./docker.env
+    volumes:
+      - type: tmpfs
+        target: /tmp/mogause
+        tmpfs:
+          size: 134217728
     depends_on:
       - backend

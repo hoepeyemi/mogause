@@ -57,6 +57,9 @@ keyfile.json
 node_modules
 .next
 
+# Docker Compose local overrides (e.g. external volumes)
+docker-compose.override.yml
+
 # Environment
 azure-cli-env/
 promote/
