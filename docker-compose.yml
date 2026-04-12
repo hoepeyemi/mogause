@@ -3,7 +3,8 @@
 # 1. cp backend/.env.example backend/.env  &&  fill secrets (AGENT_PRIVATE_KEY, GROQ_API_KEY, …)
 # 2. cp agent/.env.example agent/.env       &&  set AGENT_PRIVATE_KEY, GROQ_API_KEY, AGENT_SERVER_URL
 # 3. cp docker/env.compose.example .env.compose  (optional — sets NEXT_PUBLIC_* for frontend build)
-# 4. docker compose --env-file .env.compose up --build
+# 4. docker compose up -d --build
+#    (-d = detached; restart policies keep services up after crashes / host reboot)
 #
 # Frontend must use a URL the *browser* can reach (usually http://localhost:4002 when backend publishes 4002).
 # The CLI agent container uses http://backend:4002 on the Docker network.
@@ -15,6 +16,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "${BACKEND_PUBLISH_PORT:-4002}:4002"
     env_file:
@@ -32,6 +34,7 @@ services:
         NEXT_PUBLIC_SERVER_ADDRESS: ${NEXT_PUBLIC_SERVER_ADDRESS:-}
         NEXT_PUBLIC_AGENT_PRIVATE_KEY: ${NEXT_PUBLIC_AGENT_PRIVATE_KEY:-}
         NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-stellar:testnet}
+    restart: unless-stopped
     ports:
       - "${FRONTEND_PUBLISH_PORT:-3000}:3000"
     depends_on:
@@ -41,6 +44,7 @@ services:
     build:
       context: ./agent
       dockerfile: Dockerfile
+    restart: unless-stopped
     stdin_open: true
     tty: true
     env_file:

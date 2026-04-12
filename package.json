@@ -16,7 +16,9 @@
     "test:client": "cd agent && npm run test:client",
     "install:all": "cd backend && npm install && cd ../agent && npm install && cd ../frontend && npm install",
     "docker:build": "docker compose build",
-    "docker:up": "docker compose up --build"
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
   },
   "keywords": [
     "x402",
