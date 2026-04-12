@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Globe, Box } from 'lucide-react';
 import { getAgentIcon, getAgentColor } from './AgentIcons';
 import { useI18n } from '@/lib/LanguageContext';
+import { API_URL } from '@/lib/api';
 
 interface Tool {
   id: string;
@@ -22,7 +23,7 @@ export default function ToolCatalog() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${(process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '')}/api/tools`)
+    fetch(`${API_URL}/api/tools`)
       .then(res => res.json())
       .then(data => {
         const formatted = data.map((t: any) => ({

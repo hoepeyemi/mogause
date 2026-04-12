@@ -7,8 +7,9 @@ import TransactionLog from '@/components/TransactionLog';
 import ToolCatalog from '@/components/ToolCatalog';
 import ProtocolTrace from '@/components/ProtocolTrace';
 import { useI18n } from '@/lib/LanguageContext';
+import { API_URL } from '@/lib/api';
 
-const API = (process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '');
+const API = API_URL;
 
 export default function Home() {
   const { language, t } = useI18n();

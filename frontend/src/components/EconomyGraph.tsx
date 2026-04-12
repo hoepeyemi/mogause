@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { API_URL } from '@/lib/api';
 
-const API = (process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '');
+const API = API_URL;
 
 interface PaymentNode {
   id: string;

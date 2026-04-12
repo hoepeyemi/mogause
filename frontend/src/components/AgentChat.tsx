@@ -3,6 +3,7 @@ import { Send, Terminal, Loader2, Shield, Zap, DollarSign, Activity, Share2 } fr
 import { A2ATopology } from './A2ATopology';
 import { getAgentIcon, getAgentColor } from './AgentIcons';
 import { useI18n } from '@/lib/LanguageContext';
+import { API_URL } from '@/lib/api';
 
 interface Params {
   onNewPayments: (amount: number) => void;
@@ -18,6 +19,33 @@ interface Message {
 }
 
 const SimpleMarkdown = ({ text }: { text: string }) => {
+  // Check if text is JSON and format it nicely
+  try {
+    if (text.startsWith('{') || text.startsWith('[')) {
+      const json = JSON.parse(text);
+      if (json.summary) {
+        // Format research agent response
+        let formatted = `**Summary:** ${json.summary}\n\n`;
+        if (json.sources && json.sources.length > 0) {
+          formatted += '**Sources:**\n';
+          json.sources.forEach((s: any, i: number) => {
+            formatted += `• ${s.title || `Source ${i + 1}`}${s.url ? ` (${s.url})` : ''}\n`;
+          });
+          formatted += '\n';
+        }
+        if (json.key_findings && json.key_findings.length > 0) {
+          formatted += '**Key Findings:**\n';
+          json.key_findings.forEach((f: string, i: number) => {
+            formatted += `• ${f}\n`;
+          });
+        }
+        text = formatted;
+      }
+    }
+  } catch {
+    // Not JSON, continue with normal markdown parsing
+  }
+
   // Ultra-simple markdown parser for bold and code
   const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
   return (
@@ -129,7 +157,7 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
         return;
       }
 
-      const sseUrl = `${(process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '')}/api/agent/events?clientId=${clientId.current}`;
+      const sseUrl = `${API_URL}/api/agent/events?clientId=${clientId.current}`;
       sse = new EventSource(sseUrl);
       eventSourceRef.current = sse;
 
@@ -257,7 +285,7 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
     setAgentStatus('planning');
 
     try {
-      const response = await fetch(`${(process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '')}/api/agent/query`, {
+      const response = await fetch(`${API_URL}/api/agent/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userMsg, clientId: clientId.current })

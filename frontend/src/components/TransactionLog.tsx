@@ -3,12 +3,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/LanguageContext';
+import { API_URL } from '@/lib/api';
 
-const API = (process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '');
+const API = API_URL;
 
 interface Payment {
   id: string;
-  timestamp: number;
+  timestamp: string | number;
   endpoint: string;
   payer: string;
   worker: string;
@@ -98,9 +99,9 @@ function PaymentCard({ payment }: { payment: Payment }) {
   const { t } = useI18n();
   const shortAddr = (addr: string) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '???';
-  const timeAgo = (ts: number) => {
-
-    const diff = Date.now() - ts;
+  const timeAgo = (ts: string | number) => {
+    const date = typeof ts === 'string' ? new Date(ts) : new Date(ts);
+    const diff = Date.now() - date.getTime();
     if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     return `${Math.floor(diff / 3600000)}h ago`;

@@ -104,7 +104,8 @@ function TraceCard({ trace, index, showTechnical }: { trace: ProtocolTraceEntry;
 
   const formatTimestamp = (ts: string | number) => {
     try {
-      return new Date(ts).toLocaleTimeString();
+      const date = typeof ts === 'string' ? new Date(ts) : new Date(ts);
+      return date.toLocaleTimeString();
     } catch {
       return 'N/A';
     }

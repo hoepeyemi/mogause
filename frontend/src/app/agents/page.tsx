@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Bot, Zap, Star, Activity, BarChart3, Filter } from 'lucide-react';
 import { useI18n } from '@/lib/LanguageContext';
+import { API_URL } from '@/lib/api';
 
 export default function AgentsPage() {
   const { t } = useI18n();
@@ -14,7 +15,7 @@ export default function AgentsPage() {
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        const res = await fetch(`${(process.env.NEXT_PUBLIC_API_URL || 'https://synergi.onrender.com').replace(/\/$/, '')}/api/registry`);
+        const res = await fetch(`${API_URL}/api/registry`);
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
         const data = await res.json();
         setAgents(data.agents || []);

@@ -20,7 +20,7 @@
     "dotenv": "^16.4.7",
     "groq-sdk": "^0.37.0",
     "mppx": "^0.5.9",
-    "x402-stacks": "latest"
+    "x402-stellar": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
