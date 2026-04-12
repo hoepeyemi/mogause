@@ -71,8 +71,7 @@ export default function Home() {
   };
 
   const triggerStressTest = async () => {
-    const clientId =
-      localStorage.getItem('mogause_client_id') || localStorage.getItem('synergi_client_id');
+    const clientId = localStorage.getItem('mogause_client_id');
     if (!clientId) return;
     setIsStressTesting(true);
     try {
@@ -103,7 +102,7 @@ export default function Home() {
       }}>
         {/* Decorative elements */}
         <div style={{ position: 'absolute', top: -20, right: -20, fontSize: '10rem', opacity: 0.05, fontWeight: 900, pointerEvents: 'none', color: '#fff' }}>
-          SYNERGI
+          mogause
         </div>
 
         <div style={{ position: 'relative', zIndex: 1 }}>

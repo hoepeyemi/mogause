@@ -1,7 +1,7 @@
 {
-  "name": "x402-agent",
+  "name": "mogause-agent",
   "version": "1.0.0",
-  "description": "Autonomous AI agent that discovers and pays for x402-protected API tools",
+  "description": "mogause autonomous AI agent that discovers and pays for x402-protected API tools",
   "type": "module",
   "scripts": {
     "start": "tsx src/agent.ts",

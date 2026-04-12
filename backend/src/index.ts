@@ -2072,7 +2072,7 @@ async function runManagerAgent(
     return `- "${agent.id}": ${agent.category} Agent | Cost: ${agent.priceXLM} XLM | Reputation: ${agent.reputation}/100`;
   }).join('\n');
 
-  const plannerPrompt = `You are the MANAGER AGENT of an autonomous AI economy on Stellar blockchain.
+  const plannerPrompt = `You are the MANAGER AGENT of mogause — an autonomous AI economy on Stellar blockchain.
 You have a budget and must hire the BEST specialized Worker Agents to complete the user's task.
 
 Available Worker Agents (x402 paid APIs):

@@ -1,7 +1,7 @@
 {
-  "name": "x402-autonomous-agent",
+  "name": "mogause",
   "version": "1.0.0",
-  "description": "Autonomous AI agent on Stellar blockchain that discovers and pays for premium API tools using x402-stellar HTTP 402 micropayments",
+  "description": "mogause — autonomous AI agents on Stellar that discover and pay for premium API tools using x402 HTTP 402 micropayments",
   "private": true,
   "workspaces": [
     "backend",

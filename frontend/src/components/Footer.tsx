@@ -18,7 +18,7 @@ export default function Footer() {
     { name: 'API Reference', path: 'https://developers.stellar.org' },
     { name: 'Tutorials', path: '#' },
     { name: 'Community', path: 'https://stellar.org' },
-    { name: 'Support', path: 'mailto:support@synergi.ai' },
+    { name: 'Support', path: 'mailto:support@mogause.ai' },
   ];
 
   return (
@@ -43,7 +43,7 @@ export default function Footer() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <img
                 src="/logo.png"
-                alt="SYNERGI"
+                alt="mogause"
                 style={{
                   width: 44,
                   height: 44,
@@ -59,7 +59,7 @@ export default function Footer() {
                 letterSpacing: '-0.04em',
                 textTransform: 'uppercase'
               }}>
-                SYNERGI
+                mogause
               </span>
             </div>
           </Link>
@@ -77,8 +77,8 @@ export default function Footer() {
           <div style={{ display: 'flex', gap: 12 }}>
             {[
               { icon: Github, href: 'https://github.com/Mansi2007275/x402-autonomous-agent-?tab=readme-ov-file' },
-              { icon: Twitter, href: 'https://twitter.com/synergi' },
-              { icon: Send, href: 'https://t.me/synergi' }
+              { icon: Twitter, href: 'https://twitter.com/mogause' },
+              { icon: Send, href: 'https://t.me/mogause' }
             ].map((social, i) => (
               <a
                 key={i}
@@ -147,7 +147,7 @@ export default function Footer() {
       {/* Bottom Bar */}
       <div className="footer-bottom">
         <div className="mono copyright">
-          &copy; 2026 SYNERGI_PROTOCOL. ALL RIGHTS RESERVED.
+          &copy; 2026 mogause. ALL RIGHTS RESERVED.
         </div>
         <div className="bottom-links">
           <Link href="/privacy" className="mono bottom-link">PRIVACY</Link>

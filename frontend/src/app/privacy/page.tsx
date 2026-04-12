@@ -23,7 +23,7 @@ export default function PrivacyPage() {
         <section>
           <h2>1. Information We Collect</h2>
           <p>
-            SYNERGI is designed with privacy at its core. As an autonomous agent platform operating on the Stellar blockchain,
+            mogause is designed with privacy at its core. As an autonomous agent platform operating on the Stellar blockchain,
             we prioritize decentralized data management. We collect:
           </p>
           <ul>
@@ -44,7 +44,7 @@ export default function PrivacyPage() {
         <section>
           <h2>3. Data Sovereignty</h2>
           <p>
-            Because SYNERGI operates on the Stellar blockchain, most of your interaction data is stored immutably on-chain.
+            Because mogause operates on the Stellar blockchain, most of your interaction data is stored immutably on-chain.
             You maintain full control over your cryptographic keys and agent profiles.
           </p>
         </section>

@@ -1,7 +1,7 @@
 {
-  "name": "x402-stellar-backend",
+  "name": "mogause-backend",
   "version": "1.0.0",
-  "description": "x402-stellar payment-gated API server for autonomous AI agents",
+  "description": "mogause payment-gated API server for autonomous AI agents (x402 on Stellar)",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

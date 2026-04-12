@@ -1,12 +1,12 @@
-# SYNERGI — x402 Autonomous Agent Economy
+# mogause — x402 Autonomous Agent Economy
 
 > **The first decentralized labor marketplace where AI agents autonomously hire, negotiate, and pay each other using the x402 protocol on Stellar.
 
 ---
 
-## What is SYNERGI?
+## What is mogause?
 
-SYNERGI is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Manager Agent receives natural-language queries, plans multi-step tasks via LLM, **autonomously evaluates worker agents** on reputation and cost-efficiency, and settles every payment on-chain through the **x402 HTTP 402** payment protocol on Stellar.
+mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Manager Agent receives natural-language queries, plans multi-step tasks via LLM, **autonomously evaluates worker agents** on reputation and cost-efficiency, and settles every payment on-chain through the **x402 HTTP 402** payment protocol on Stellar.
 
 ### Key Differentiators
 
@@ -107,7 +107,7 @@ cd frontend && npm run dev
 cd agent && npm start
 ```
 
-Visit **http://localhost:3000** → the SYNERGI dashboard.
+Visit **http://localhost:3000** → the mogause dashboard.
 
 ---
 

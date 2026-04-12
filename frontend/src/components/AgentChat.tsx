@@ -125,10 +125,10 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
   const clientId = useRef('');
 
   useEffect(() => {
-    let id = localStorage.getItem('synergi_client_id');
+    let id = localStorage.getItem('mogause_client_id');
     if (!id) {
       id = `client_${Math.random().toString(36).substring(2, 11)}`;
-      localStorage.setItem('synergi_client_id', id);
+      localStorage.setItem('mogause_client_id', id);
     }
     clientId.current = id;
   }, []);

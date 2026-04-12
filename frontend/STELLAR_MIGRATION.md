@@ -1,8 +1,8 @@
-# SYNERGI Frontend Migration Guide: Stacks → Stellar
+# mogause Frontend Migration Guide: Stacks → Stellar
 
 ## Overview
 
-This document describes the migration of the SYNERGI frontend from **Stacks Connect** to **Stellar Wallets Kit**, enabling support for multiple Stellar wallets (Freighter, LOBSTR, xBull, Albedo, etc.) instead of Stacks wallets.
+This document describes the migration of the mogause frontend from **Stacks Connect** to **Stellar Wallets Kit**, enabling support for multiple Stellar wallets (Freighter, LOBSTR, xBull, Albedo, etc.) instead of Stacks wallets.
 
 ---
 
