@@ -12,7 +12,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'SYNERGI — x402 Agent Economy | Stellar Network',
+  title: 'mogause — x402 Agent Economy | Stellar Network',
   description: 'Autonomous Agent-to-Agent micropayment marketplace on Stellar via x402 protocol',
   icons: {
     icon: '/logo.png',

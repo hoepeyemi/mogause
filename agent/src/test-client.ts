@@ -57,7 +57,7 @@ async function testSummarize() {
   console.log('[3/4] Testing POST /api/summarize (XLM)...');
   try {
     const res = await axios.post(`${SERVER_URL}/api/summarize`, {
-      text: 'The SYNERGI protocol enables automatic payments for APIs using Stellar/Soroban.',
+      text: 'The mogause protocol enables automatic payments for APIs using Stellar/Soroban.',
       maxLength: 100,
     });
     console.log('  Status:', res.status);

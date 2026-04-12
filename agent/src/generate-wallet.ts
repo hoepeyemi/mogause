@@ -1,7 +1,7 @@
 /**
  * Generate Wallet — Create a testnet Stellar keypair for the agent and onboard it
  * 
- * This script generates a new keypair and uses the SYNERGI backend to sponsor 
+ * This script generates a new keypair and uses the mogause backend to sponsor 
  * the account and establish a USDC trustline.
  * 
  * Run: npx tsx agent/src/generate-wallet.ts
@@ -14,7 +14,7 @@ const SERVICE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 async function generateAndOnboardWallet() {
   try {
     console.log('\n================================================================');
-    console.log('  SYNERGI — STELLAR AGENT ONBOARDING');
+    console.log('  mogause — STELLAR AGENT ONBOARDING');
     console.log('================================================================\n');
 
     // 1. Generate keypair
@@ -27,7 +27,7 @@ async function generateAndOnboardWallet() {
     console.log(`  Private Key (Secret) : ${secretKey}`);
     console.log('----------------------------------------------------------------');
 
-    // 2. Request sponsored account from SYNERGI backend
+    // 2. Request sponsored account from mogause backend
     // Using the /create endpoint as per the provided guide
     console.log('\nRequesting sponsored account and USDC trustline...');
     const createResponse = await fetch(`${SERVICE_URL}/create`, {

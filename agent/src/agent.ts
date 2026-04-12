@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * SYNERGI — Autonomous Stellar Agent (CLI + Programmatic)
+ * mogause — Autonomous Stellar Agent (CLI + Programmatic)
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * An AI agent that:
@@ -132,7 +132,7 @@ interface AgentPlan {
 }
 
 async function runAgent() {
-    console.log("SYNERGI Stellar Agent initialized.");
+    console.log("mogause Stellar Agent initialized.");
     console.log(`Wallet: ${alice.publicKey()}`);
 }
 
@@ -236,7 +236,7 @@ async function planToolCalls(query: string, tools: Tool[]): Promise<AgentPlan> {
     `- ID: "${t.id}" | Name: "${t.name}" | Cost: ${t.price.XLM} XLM | Rep: ${t.reputation}/100 | Cat: ${t.category} | ${t.canHireSubAgents ? 'CAN HIRE SUB-AGENTS' : 'Worker'}\n  Description: ${t.description}\n  Params: ${JSON.stringify(t.params)}`
   ).join('\n\n');
 
-  const systemPrompt = `You are the MANAGER AGENT of SYNERGI — an autonomous AI economy on Stellar blockchain.
+  const systemPrompt = `You are the MANAGER AGENT of mogause — an autonomous AI economy on Stellar blockchain.
 
 You have a BUDGET and must hire Worker Agents via Soroban micropayments.
 Each hire costs real XLM tokens on the Stellar blockchain.
@@ -584,7 +584,7 @@ async function synthesizeAnswer(query: string, results: ToolCallResult[]): Promi
 async function startRepl() {
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════╗');
-  console.log('║              SYNERGI — x402 AUTONOMOUS AGENT                ║');
+  console.log('║              mogause — x402 AUTONOMOUS AGENT                ║');
   console.log('║           Agent-to-Agent Economy on Stellar                  ║');
   console.log('╠══════════════════════════════════════════════════════════════╣');
   console.log(`║  Server  : ${SERVER_URL.padEnd(49)}║`);
@@ -607,7 +607,7 @@ async function startRepl() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const prompt = () => {
-    rl.question('\n[SYNERGI] > ', async (input) => {
+    rl.question('\n[mogause] > ', async (input) => {
       const trimmed = input.trim();
       if (!trimmed) { prompt(); return; }
 

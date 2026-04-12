@@ -71,7 +71,8 @@ export default function Home() {
   };
 
   const triggerStressTest = async () => {
-    const clientId = localStorage.getItem('synergi_client_id');
+    const clientId =
+      localStorage.getItem('mogause_client_id') || localStorage.getItem('synergi_client_id');
     if (!clientId) return;
     setIsStressTesting(true);
     try {

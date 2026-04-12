@@ -7,14 +7,6 @@ import { API_URL } from '@/lib/api';
 
 const API = API_URL;
 
-function stellarExpertUrlForTxHash(transaction: string): string | undefined {
-  const t = transaction.trim();
-  if (!/^[0-9a-fA-F]{64}$/.test(t)) return undefined;
-  const raw = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || 'stellar:testnet').toLowerCase();
-  const net = raw.includes('pubnet') ? 'public' : 'testnet';
-  return `https://stellar.expert/explorer/${net}/tx/${t.toLowerCase()}`;
-}
-
 interface Payment {
   id: string;
   timestamp: string | number;
@@ -25,6 +17,8 @@ interface Payment {
   token: string;
   amount: string;
   explorerUrl?: string;
+  horizonUrl?: string;
+  settlementNetwork?: 'testnet' | 'public';
   isA2A: boolean;
   parentJobId?: string;
   depth: number;
@@ -36,7 +30,8 @@ interface Payment {
       amount: string;
       fee: string;
       reason: string;
-    }
+    };
+    settlementWarning?: string;
   };
 }
 
@@ -105,7 +100,10 @@ export default function TransactionLog({ refreshTrigger }: Props) {
 
 function PaymentCard({ payment }: { payment: Payment }) {
   const { t } = useI18n();
-  const txUrl = payment.explorerUrl || stellarExpertUrlForTxHash(payment.transaction);
+  const explorerUrl = payment.explorerUrl;
+  const horizonUrl = payment.horizonUrl;
+  const settlementWarning =
+    typeof payment.metadata?.settlementWarning === 'string' ? payment.metadata.settlementWarning : undefined;
   const shortAddr = (addr: string) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '???';
   const timeAgo = (ts: string | number) => {
@@ -175,32 +173,60 @@ function PaymentCard({ payment }: { payment: Payment }) {
         </div>
       )}
 
-      {/* Explorer: only when we have a verified 64-hex ledger tx id (avoid misleading network home links). */}
-      {txUrl ? (
-        <a
-          href={txUrl}
-          title="Open this transaction on StellarExpert"
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            display: 'inline-block', marginTop: 6,
-            fontSize: '0.55rem', color: 'var(--accent-cyan)', textDecoration: 'none',
-            fontFamily: 'var(--font-mono)',
-          }}
-        >
-          {t.viewExplorer}
-        </a>
-      ) : (
-        <span
-          style={{
-            display: 'inline-block', marginTop: 6,
-            fontSize: '0.55rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
-          }}
-          title={t.explorerNoTxId}
-        >
-          {t.explorerNoTxId}
-        </span>
-      )}
+      {/* Links only when backend verified the hash on Horizon (or SKIP_HORIZON_TX_VERIFY). */}
+      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {explorerUrl || horizonUrl ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+            {explorerUrl && (
+              <a
+                href={explorerUrl}
+                title="Open this transaction on StellarExpert"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  fontSize: '0.55rem', color: 'var(--accent-cyan)', textDecoration: 'none',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {t.viewExplorer}
+              </a>
+            )}
+            {horizonUrl && (
+              <a
+                href={horizonUrl}
+                title="Open this transaction JSON on Horizon"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  fontSize: '0.55rem', color: 'var(--accent-cyan)', textDecoration: 'none',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {t.viewHorizon}
+              </a>
+            )}
+          </div>
+        ) : (
+          <span
+            style={{
+              fontSize: '0.55rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
+            }}
+            title={settlementWarning || t.explorerNoTxId}
+          >
+            {t.explorerNoTxId}
+          </span>
+        )}
+        {settlementWarning && (
+          <span
+            style={{
+              fontSize: '0.5rem', color: '#b45309', fontFamily: 'var(--font-mono)', lineHeight: 1.35,
+            }}
+            title={settlementWarning}
+          >
+            {settlementWarning.length > 240 ? `${settlementWarning.slice(0, 240)}…` : settlementWarning}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

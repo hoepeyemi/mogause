@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * SYNERGI — x402 Autonomous Agent Economy Server
+ * mogause — x402 Autonomous Agent Economy Server
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * A production-grade backend that implements:
@@ -39,7 +39,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { Mppx, stellar, Store } from '@stellar/mpp/charge/server';
 import { Mppx as MppxChargeClient, stellar as stellarChargeClient } from '@stellar/mpp/charge/client';
-import { XLM_SAC_TESTNET } from '@stellar/mpp';
+import { XLM_SAC_TESTNET, HORIZON_URLS } from '@stellar/mpp';
 import { Keypair } from '@stellar/stellar-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
@@ -97,6 +97,67 @@ function stellarExpertTxUrl(txnHash: string): string | undefined {
   return `https://stellar.expert/explorer/${net}/tx/${h}`;
 }
 
+function resolveHorizonBaseUrl(): string {
+  const override = (process.env.HORIZON_URL || '').trim().replace(/\/$/, '');
+  if (override) return override;
+  return HORIZON_URLS[NETWORK];
+}
+
+async function horizonHasTransaction(hash: string): Promise<boolean> {
+  const h = hash.trim().toLowerCase();
+  const base = resolveHorizonBaseUrl();
+  try {
+    const url = `${base}/transactions/${h}`;
+    const r = await axios.get(url, { timeout: 8000, validateStatus: () => true });
+    if (r.status !== 200) return false;
+    const got = typeof r.data?.hash === 'string' ? r.data.hash.toLowerCase() : '';
+    return got === h;
+  } catch {
+    return false;
+  }
+}
+
+type ExplorerLinkResult = {
+  settlementNetwork: 'testnet' | 'public';
+  explorerUrl?: string;
+  horizonUrl?: string;
+  settlementWarning?: string;
+};
+
+/**
+ * Only attach StellarExpert / Horizon links if the tx exists on the configured Horizon
+ * (avoids "Transaction not found" when STELLAR_NETWORK/HORIZON_URL mismatch or receipt is wrong).
+ * Set SKIP_HORIZON_TX_VERIFY=true to skip the HTTP check (dev only).
+ */
+async function finalizeExplorerLinksForTxHash(hash: string): Promise<ExplorerLinkResult> {
+  const settlementNetwork = NETWORK === 'stellar:pubnet' ? 'public' : 'testnet';
+  if (!isStellarTransactionHash(hash)) {
+    return { settlementNetwork, settlementWarning: 'Not a 64-character hex Stellar ledger transaction hash.' };
+  }
+  const h = hash.trim().toLowerCase();
+  const horizonUrl = `${resolveHorizonBaseUrl()}/transactions/${h}`;
+  if (process.env.SKIP_HORIZON_TX_VERIFY === 'true') {
+    return {
+      settlementNetwork,
+      explorerUrl: stellarExpertTxUrl(h) || undefined,
+      horizonUrl,
+    };
+  }
+  const ok = await horizonHasTransaction(h);
+  if (!ok) {
+    return {
+      settlementNetwork,
+      settlementWarning:
+        `Hash not found on Horizon at ${resolveHorizonBaseUrl()} (STELLAR_NETWORK=${NETWORK}). Fix network env alignment or set SKIP_HORIZON_TX_VERIFY=true to show links without verifying.`,
+    };
+  }
+  return {
+    settlementNetwork,
+    explorerUrl: stellarExpertTxUrl(h) || undefined,
+    horizonUrl,
+  };
+}
+
 const STELLAR_EXPERT_EXPLORER_HOME =
   NETWORK === 'stellar:pubnet'
     ? 'https://stellar.expert/explorer/public'
@@ -119,6 +180,17 @@ if (!AGENT_PRIVATE_KEY) {
   console.warn('[WARN] AGENT_PRIVATE_KEY (or MPP_SECRET_KEY) not set. Paid routes cannot verify MPP charges.');
 } else if (SERVER_ADDRESS && !isStellarAccountId(SERVER_ADDRESS)) {
   console.warn('[WARN] SERVER_ADDRESS / STELLAR_RECIPIENT is not a valid Stellar public key; check your .env.');
+} else if (AGENT_PRIVATE_KEY && isStellarAccountId(SERVER_ADDRESS)) {
+  try {
+    const payerPk = Keypair.fromSecret(AGENT_PRIVATE_KEY).publicKey();
+    if (payerPk === SERVER_ADDRESS) {
+      console.warn(
+        '[WARN] MPP payer (AGENT_PRIVATE_KEY) and charge recipient (SERVER_ADDRESS/STELLAR_RECIPIENT) are the same G-address. On-chain XLM transfers to self barely change balance; set STELLAR_RECIPIENT to a separate treasury for clear settlement.',
+      );
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -212,6 +284,10 @@ interface PaymentLog {
   amount: string;
   /** Present only for verified on-chain transaction hashes (64-char hex). */
   explorerUrl?: string;
+  /** Horizon REST URL for the same ledger tx (verified when explorer links are attached). */
+  horizonUrl?: string;
+  /** Network used for explorer URLs (`public` = mainnet). */
+  settlementNetwork?: 'testnet' | 'public';
   isA2A: boolean;        // Agent-to-Agent payment
   parentJobId?: string;  // For recursive hiring
   depth: number;         // 0 = user→agent, 1 = agent→agent, etc.
@@ -495,13 +571,13 @@ function extractMppSettlementTxHash(mppResult: unknown): string | undefined {
   return undefined;
 }
 
-function logPayment(
+async function logPayment(
   req: Request,
   endpoint: string,
   token: string,
   priceConfig: PriceConfig,
   opts: { isA2A?: boolean; depth?: number; parentJobId?: string; workerName?: string } = {}
-): PaymentLog | null {
+): Promise<PaymentLog | null> {
   const mppResult = (req as any).mppResult;
   let chainHash = extractMppSettlementTxHash(mppResult);
   if (!chainHash) {
@@ -522,7 +598,7 @@ function logPayment(
     }
   }
   const txId = raw || `sim_${(++paymentIdCounter).toString(16).padStart(8, '0')}`;
-  const explorerUrl = stellarExpertTxUrl(raw);
+  const linkMeta = raw && isStellarTransactionHash(raw) ? await finalizeExplorerLinksForTxHash(raw) : { settlementNetwork: (NETWORK === 'stellar:pubnet' ? 'public' : 'testnet') as 'testnet' | 'public' };
 
   const displayAmount = `${priceConfig.xlmAmount} XLM`;
 
@@ -543,7 +619,10 @@ function logPayment(
     transaction: txId,
     token,
     amount: displayAmount,
-    ...(explorerUrl ? { explorerUrl } : {}),
+    ...(linkMeta.explorerUrl ? { explorerUrl: linkMeta.explorerUrl } : {}),
+    ...(linkMeta.horizonUrl ? { horizonUrl: linkMeta.horizonUrl } : {}),
+    settlementNetwork: linkMeta.settlementNetwork,
+    ...(linkMeta.settlementWarning ? { metadata: { settlementWarning: linkMeta.settlementWarning } } : {}),
     isA2A: opts.isA2A || false,
     parentJobId: opts.parentJobId,
     depth: opts.depth || 0,
@@ -722,7 +801,7 @@ function installMppResJsonPatch(
   (res as unknown as Record<symbol, boolean>)[MPP_JSON_PATCHED] = true;
 
   const origJson = res.json.bind(res);
-  res.json = function mppAwareJson(body: unknown) {
+  res.json = async function mppAwareJson(body: unknown) {
     const paid =
       chargeResult &&
       typeof chargeResult.withReceipt === 'function' &&
@@ -772,17 +851,17 @@ function installMppResJsonPatch(
       }
     }
 
-    const deferred = (req as any)._mppDeferredLogPayment as undefined | (() => void);
+    const deferred = (req as any)._mppDeferredLogPayment as undefined | (() => void | Promise<void>);
     if (typeof deferred === 'function') {
       try {
-        deferred();
+        await Promise.resolve(deferred());
       } finally {
         delete (req as any)._mppDeferredLogPayment;
       }
     }
 
     return origJson(body as any);
-  };
+  } as unknown as Response['json'];
 }
 
 function scheduleDeferredPaymentLog(
@@ -793,14 +872,17 @@ function scheduleDeferredPaymentLog(
   priceConfig: PriceConfig,
   opts: { isA2A?: boolean; depth?: number; parentJobId?: string; workerName?: string } = {},
 ) {
-  (req as any)._mppDeferredLogPayment = () => {
-    const entry = logPayment(req, endpoint, token, priceConfig, opts);
+  (req as any)._mppDeferredLogPayment = async () => {
+    const entry = await logPayment(req, endpoint, token, priceConfig, opts);
     payload.payment = entry
       ? {
           transaction: entry.transaction,
           token: entry.token,
           amount: entry.amount,
           explorerUrl: entry.explorerUrl,
+          horizonUrl: entry.horizonUrl,
+          settlementNetwork: entry.settlementNetwork,
+          settlementWarning: entry.metadata?.settlementWarning as string | undefined,
         }
       : null;
   };
@@ -982,7 +1064,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.get('/', (_req: Request, res: Response) => {
   res.json({
-    name: 'SYNERGI — x402 Autonomous Agent Economy',
+    name: 'mogause — x402 Autonomous Agent Economy',
     version: '2.0.0',
     description: 'Agent-to-Agent micropayment marketplace on Stellar via x402',
     network: NETWORK,
@@ -2169,6 +2251,16 @@ Return ONLY valid JSON:
         }
 
         payment = extractA2aPaymentFromWorkerResponse(headers, data, token, price);
+        {
+          const links = await finalizeExplorerLinksForTxHash(payment.transaction);
+          payment = {
+            ...payment,
+            explorerUrl: links.explorerUrl,
+            horizonUrl: links.horizonUrl,
+            settlementNetwork: links.settlementNetwork,
+            ...(links.settlementWarning ? { settlementWarning: links.settlementWarning } : {}),
+          };
+        }
 
         // **LOG PAYMENT TO TRANSACTION LOG**
         const paymentLog: PaymentLog = {
@@ -2181,6 +2273,9 @@ Return ONLY valid JSON:
           token: payment.token,
           amount: payment.amount,
           ...(payment.explorerUrl ? { explorerUrl: payment.explorerUrl } : {}),
+          ...(payment.horizonUrl ? { horizonUrl: payment.horizonUrl } : {}),
+          settlementNetwork: payment.settlementNetwork,
+          ...(payment.settlementWarning ? { metadata: { settlementWarning: payment.settlementWarning } } : {}),
           isA2A: true,
           depth: 0,
         };
@@ -2294,6 +2389,16 @@ Return ONLY valid JSON:
                 originalAgent: agentName,
                 fallbackAgent: fallbackName,
               };
+              {
+                const links = await finalizeExplorerLinksForTxHash(payment.transaction);
+                payment = {
+                  ...payment,
+                  explorerUrl: links.explorerUrl,
+                  horizonUrl: links.horizonUrl,
+                  settlementNetwork: links.settlementNetwork,
+                  ...(links.settlementWarning ? { settlementWarning: links.settlementWarning } : {}),
+                };
+              }
 
               // **LOG FALLBACK PAYMENT TO TRANSACTION LOG**
               const fallbackPaymentLog: PaymentLog = {
@@ -2306,6 +2411,9 @@ Return ONLY valid JSON:
                 token: payment.token,
                 amount: payment.amount,
                 ...(payment.explorerUrl ? { explorerUrl: payment.explorerUrl } : {}),
+                ...(payment.horizonUrl ? { horizonUrl: payment.horizonUrl } : {}),
+                settlementNetwork: payment.settlementNetwork,
+                ...(payment.settlementWarning ? { metadata: { settlementWarning: payment.settlementWarning } } : {}),
                 isA2A: true,
                 depth: 0,
               };
@@ -2846,7 +2954,7 @@ app.post('/api/agent/stress-test', async (req: Request, res: Response) => {
     }
 
     sendSSETo(clientId, 'thought', {
-      content: "[STRESS TEST COMPLETE] Hive-mind synchronized. Synergi-Engine stable at peak load."
+      content: "[STRESS TEST COMPLETE] Hive-mind synchronized. mogause engine stable at peak load."
     });
   })();
 });
@@ -2878,7 +2986,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 app.listen(PORT, HOST, () => {
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════╗');
-  console.log('║  SYNERGI — x402 Autonomous Agent Economy                   ║');
+  console.log('║  mogause — x402 Autonomous Agent Economy                   ║');
   console.log('║  Agent-to-Agent Micropayment Marketplace on Stellar        ║');
   console.log('╠══════════════════════════════════════════════════════════════╣');
   console.log(`║  Server      : http://${HOST}:${PORT}`);
