@@ -340,11 +340,12 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
 
       // The final result is also sent via SSE 'done', but we can update UI here from the direct response too
       if (result.finalAnswer) {
-         setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: result.finalAnswer,
-            depth: 0
-         }]);
+        const finalAnswer = String(result.finalAnswer);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: finalAnswer,
+          depth: 0,
+        }]);
       }
 
       // Explicit UI reset after successful API fetch to prevent stuck "Thinking" state

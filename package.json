@@ -14,7 +14,9 @@
     "dev:agent": "cd agent && npm start",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "test:client": "cd agent && npm run test:client",
-    "install:all": "cd backend && npm install && cd ../agent && npm install && cd ../frontend && npm install"
+    "install:all": "cd backend && npm install && cd ../agent && npm install && cd ../frontend && npm install",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up --build"
   },
   "keywords": [
     "x402",
