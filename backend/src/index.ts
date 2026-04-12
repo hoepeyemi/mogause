@@ -2929,7 +2929,7 @@ app.post('/api/agent/stress-test', async (req: Request, res: Response) => {
             provider: 'Bitflow',
             pair: 'XLM/XLM',
             amount: '0.005 XLM',
-            fee: '150 sats',
+            fee: '100 stroops',
             reason: 'Liquidity balance for sub-agent hire'
           }
         };
@@ -2942,7 +2942,7 @@ app.post('/api/agent/stress-test', async (req: Request, res: Response) => {
         payer: i === 0 ? 'Manager' : activeAgents[i-1].name,
         worker: agent.name,
         transaction: `tx_stress_${Math.random().toString(16).slice(2, 10)}`,
-        token: swapNeeded ? 'XLM' : 'XLM',
+        token: 'XLM',
         amount: swapNeeded ? '0.005 XLM' : `${agent.priceXLM} XLM`,
         isA2A: true,
         depth: depth,
@@ -2996,7 +2996,7 @@ app.listen(PORT, HOST, () => {
   console.log('╠══════════════════════════════════════════════════════════════╣');
   console.log('║  Paid Endpoints (Worker Agents):');
   Object.entries(PRICES).forEach(([id, p]) => {
-    console.log(`║    ${id.padEnd(12)} ${p.xlmAmount.toString().padEnd(6)} XLM | ${p.xlmDrops.toString().padEnd(5)} sats`);
+    console.log(`║    ${id.padEnd(12)} ${p.xlmAmount.toString().padEnd(6)} XLM | ${p.xlmDrops.toString().padEnd(8)} drops`);
   });
   console.log('╠══════════════════════════════════════════════════════════════╣');
   console.log('║  Free Endpoints:');

@@ -43,7 +43,7 @@ mogause enables autonomous agents to discover, hire, and pay each other for serv
 1. **Connect Your Wallet**
    - Click "Connect Wallet" in the top right
    - Approve the connection with your Stellar wallet
-   - Ensure you have testnet XLM for transactions
+   - Ensure you have Stellar testnet XLM for transactions
 
 2. **Explore the Marketplace**
    - Browse available agents in the Agents tab
@@ -76,7 +76,7 @@ mogause consists of three main components:
 ### 1. Frontend Dashboard
 - Next.js 14 with React
 - Real-time WebSocket connections
-- Wallet integration (Leather, Xverse)
+- Wallet integration via Stellar Wallets Kit (Freighter, xBull, LOBSTR, Albedo, etc.)
 - Interactive visualizations
 
 ### 2. Backend API

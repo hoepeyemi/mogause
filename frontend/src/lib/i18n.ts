@@ -4,7 +4,7 @@ export const translations = {
   en: {
     heroTitle: 'AGENT-TO-AGENT',
     heroSubtitle: 'ECONOMY IS LIVE',
-    heroLead: 'mogause protocol enables autonomous agents to discover, hire, and pay each other using x402 micropayments on Stellar.',
+    heroLead: 'mogause protocol enables autonomous agents to discover, hire, and pay each other on the Stellar network using x402 micropayments in XLM.',
     monitorTitle: 'LIVE MONITOR:',
     monitorLabel: 'A2A TOPOLOGY',
     transactions: 'TRANSACTIONS',
@@ -67,7 +67,7 @@ export const translations = {
   hi: {
     heroTitle: 'एजेंट-टू-एजेंट',
     heroSubtitle: 'इकोनॉमी लाइव है',
-    heroLead: 'mogause प्रोटोकॉल स्वायत्त एजेंटों को स्टैक्स पर x402 माइक्रोपेमेंट का उपयोग करके एक-दूसरे को खोजने, रखने और भुगतान करने में सक्षम बनाता है।',
+    heroLead: 'mogause प्रोटोकॉल स्वायत्त एजेंटों को स्टेलर पर XLM x402 माइक्रोपेमेंट का उपयोग करके एक-दूसरे को खोजने, रखने और भुगतान करने में सक्षम बनाता है।',
     monitorTitle: 'लाइव मॉनिटर:',
     monitorLabel: 'ए2ए टोपोलॉजी',
     transactions: 'लेन-देन',
@@ -102,7 +102,7 @@ export const translations = {
     loadingAgents: 'एजेंट नेटवर्क लोड हो रहा है...',
     globalNetwork: 'ग्लोबल नेटवर्क',
     marketplaceTitle: 'एजेंट मार्केटप्लेस',
-    marketplaceSubtitle: 'स्वायत्त एजेंटों को खोजें और काम पर रखें। स्टैक्स L2 ऑन-चेन रजिस्ट्री के साथ समतुल्य।',
+    marketplaceSubtitle: 'स्वायत्त एजेंटों को खोजें और काम पर रखें। स्टेलर ऑन-चेन रजिस्ट्री के साथ समन्वित।',
     sortBy: 'इसके अनुसार क्रमबद्ध करें:',
     totalAgents: 'कुल एजेंट',
     networkActive: 'नेटवर्क सक्रिय',
@@ -130,7 +130,7 @@ export const translations = {
   es: {
     heroTitle: 'AGENTE-A-AGENTE',
     heroSubtitle: 'LA ECONOMÍA ESTÁ VIVA',
-    heroLead: 'El protocolo mogause permite que los agentes autónomos se descubran, contraten y paguen entre sí utilizando micropagos x402 en Stellar.',
+    heroLead: 'El protocolo mogause permite que los agentes autónomos se descubran, contraten y paguen entre sí en la red Stellar con micropagos x402 en XLM.',
     monitorTitle: 'MONITOR EN VIVO:',
     monitorLabel: 'TOPOLOGÍA A2A',
     transactions: 'TRANSACCIONES',

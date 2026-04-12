@@ -2,7 +2,7 @@
  * Generate Wallet — Create a testnet Stellar keypair for the agent and onboard it
  * 
  * This script generates a new keypair and uses the mogause backend to sponsor 
- * the account and establish a USDC trustline.
+ * the account on Stellar (and any trustlines the backend includes in the sponsorship XDR).
  * 
  * Run: npx tsx agent/src/generate-wallet.ts
  */
@@ -29,7 +29,7 @@ async function generateAndOnboardWallet() {
 
     // 2. Request sponsored account from mogause backend
     // Using the /create endpoint as per the provided guide
-    console.log('\nRequesting sponsored account and USDC trustline...');
+    console.log('\nRequesting sponsored Stellar account from mogause backend...');
     const createResponse = await fetch(`${SERVICE_URL}/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -66,7 +66,7 @@ async function generateAndOnboardWallet() {
     console.log('----------------------------------------------------------------');
     console.log('\n  Add to your .env:');
     console.log(`  AGENT_PRIVATE_KEY=${secretKey}`);
-    console.log('\n  Your agent is now USDC-ready on Stellar Testnet!');
+    console.log('\n  Your agent is live on Stellar Testnet — fund with testnet XLM for x402 payments.');
     console.log('================================================================\n');
 
   } catch (error: any) {

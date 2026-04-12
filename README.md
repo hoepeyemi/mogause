@@ -1,6 +1,6 @@
 # mogause — x402 Autonomous Agent Economy
 
-> **The first decentralized labor marketplace where AI agents autonomously hire, negotiate, and pay each other using the x402 protocol on Stellar.
+> **The first decentralized labor marketplace where AI agents autonomously hire, negotiate, and pay each other using the x402 protocol on Stellar.**
 
 ---
 
@@ -13,7 +13,7 @@ mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 | Feature                        | Description                                                                                                       |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | **Recursive A2A Hiring**       | Agents hire sub-agents mid-task (Research → Summarizer + Sentiment). Payments cascade with depth tracking.        |
-| **Reputation Layer**           | On-chain Clarity contract tracks reputation (0–10,000 basis), dynamic pricing, job history, and category leaders. |
+| **Reputation Layer**           | On-chain Stellar (Soroban) registry tracks reputation (0–10,000 basis), dynamic pricing, job history, and category leaders. |
 | **Autonomous Cost Evaluation** | Value Score = reputation² / (price × 10,000). Manager compares alternatives before every hire.                    |
 | **Protocol Transparency**      | Every x402 handshake captured — raw 402 headers, payment payloads, signed data — visible in the dashboard.        |
 | **Dual Token Settlement**      | Pay in XLM (Stellar native). Token preference cascades through the entire A2A chain.                                |
@@ -31,7 +31,7 @@ mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 │  └────┬─────┘ └──────────┘ └──────────┘ └───────────────┘  │
 │       │ POST /api/agent/query    SSE /api/agent/events      │
 ├───────┼─────────────────────────────────────────────────────┤
-│  BACKEND (Express + x402-stellar)                           │
+│  BACKEND (Express + x402 on Stellar)                        │
 │  ┌────▼────────────────────────────────────────────────┐    │
 │  │  Manager Agent (LLM Planning: Groq → Gemini)       │    │
 │  │  ┌─────────────────────────────────────────────┐    │    │
@@ -40,7 +40,7 @@ mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 │  │                   │ x402 Payment (HTTP 402 → 200)   │    │
 │  │  ┌────────┬───────┼───────┬────────┬───────────┐    │    │
 │  │  │Weather │Summary│ Math  │Sentim. │ Research  │    │    │
-│  │  │0.001STX│0.003  │0.005  │0.002   │ 0.01 STX │    │    │
+│  │  │0.001XLM│0.003  │0.005  │0.002   │ 0.01 XLM │    │    │
 │  │  └────────┴───────┴───────┴────────┤           │    │    │
 │  │                                    │  ┌──────┐ │    │    │
 │  │                         A2A Hire → │  │Summ. │ │    │    │
@@ -48,8 +48,8 @@ mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 │  │                                    └──┴──────┘ │    │    │
 │  └─────────────────────────────────────────────────┘    │    │
 ├─────────────────────────────────────────────────────────┤    │
-│  SMART CONTRACT (Soroban - Stellar Testnet)                 │    │
-│  agent-registry.clar — Registration, Jobs, Reputation   │    │
+│  STELLAR (Soroban — testnet / pubnet)                        │    │
+│  Agent registry — registration, jobs, reputation          │    │
 └─────────────────────────────────────────────────────────┘    │
 ```
 
@@ -57,14 +57,14 @@ mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Man
 
 | Agent          | Endpoint               | Price     | Category    | Recursive?                               |
 | -------------- | ---------------------- | --------- | ----------- | ---------------------------------------- |
-| WeatherBot     | `/api/weather`         | 0.001 STX | utility     | No                                       |
-| Summarizer Pro | `/api/summarize`       | 0.003 STX | nlp         | No                                       |
-| MathSolver     | `/api/math-solve`      | 0.005 STX | computation | No                                       |
-| SentimentAI    | `/api/sentiment`       | 0.002 STX | nlp         | No                                       |
-| CodeExplainer  | `/api/code-explain`    | 0.004 STX | development | No                                       |
-| DeepResearch   | `/api/agent/research`  | 0.01 STX  | research    | **Yes** → hires Summarizer + Sentiment   |
-| CodingAgent    | `/api/agent/code`      | 0.02 STX  | development | **Yes** → hires CodeExplainer for review |
-| TranslateBot   | `/api/agent/translate` | 0.005 STX | nlp         | No                                       |
+| WeatherBot     | `/api/weather`         | 0.001 XLM | utility     | No                                       |
+| Summarizer Pro | `/api/summarize`       | 0.003 XLM | nlp         | No                                       |
+| MathSolver     | `/api/math-solve`      | 0.005 XLM | computation | No                                       |
+| SentimentAI    | `/api/sentiment`       | 0.002 XLM | nlp         | No                                       |
+| CodeExplainer  | `/api/code-explain`    | 0.004 XLM | development | No                                       |
+| DeepResearch   | `/api/agent/research`  | 0.01 XLM  | research    | **Yes** → hires Summarizer + Sentiment   |
+| CodingAgent    | `/api/agent/code`      | 0.02 XLM  | development | **Yes** → hires CodeExplainer for review |
+| TranslateBot   | `/api/agent/translate` | 0.005 XLM | nlp         | No                                       |
 
 ---
 
@@ -114,7 +114,7 @@ Visit **http://localhost:3000** → the mogause dashboard.
 ## Demo Flow
 
 1. **Chat**: Type _"Research quantum computing and summarize the findings"_
-2. **Watch**: Manager plans → hires Research Agent (0.01 STX) → Research recursively hires Summarizer (0.003 STX) + Sentiment (0.002 STX)
+2. **Watch**: Manager plans → hires Research Agent (0.01 XLM) → Research recursively hires Summarizer (0.003 XLM) + Sentiment (0.002 XLM)
 3. **See**: Live topology graph pulses with payment flows, Transaction Log shows A2A depth, Protocol Trace reveals raw 402 headers
 4. **Verify**: Every payment links to the Stellar Explorer
 
@@ -124,7 +124,7 @@ Visit **http://localhost:3000** → the mogause dashboard.
 
 ```
 ├── contracts/
-│   └── agent-registry.clar    # On-chain reputation + job marketplace
+│   └── (Soroban / Rust)         # Stellar on-chain agent registry (see contracts/)
 ├── backend/
 │   └── src/index.ts           # Express server, x402 middleware, Manager Agent
 ├── agent/
@@ -147,10 +147,10 @@ Visit **http://localhost:3000** → the mogause dashboard.
 
 ## Smart Contract
 
-The **agent-registry.clar** Clarity contract manages:
+The **Stellar (Soroban) agent registry** manages:
 
 - Agent registration with categories and pricing
-- Job lifecycle (create → complete/fail) with STX escrow
+- Job lifecycle (create → complete/fail) with XLM settlement on Stellar
 - Reputation scoring (basis points, +50/-100 per outcome)
 - Dynamic pricing based on reputation tier
 - Recursive hiring support with parent-job tracking
@@ -163,7 +163,7 @@ The **agent-registry.clar** Clarity contract manages:
 | Layer            | Technology                                     |
 | ---------------- | ---------------------------------------------- |
 | Blockchain       | Stellar, Soroban smart contracts                   |
-| Payment Protocol | x402-stellar (HTTP 402 micropayments)           |
+| Payment Protocol | x402 HTTP 402 micropayments on Stellar (XLM)   |
 | Backend          | Express.js, TypeScript, SSE                    |
 | LLM              | Groq (llama-3.3-70b) → Google Gemini 2.0 Flash |
 | Frontend         | Next.js 16, React 19, Canvas API               |

@@ -341,7 +341,7 @@ function fallbackPlan(query: string, tools: Tool[]): AgentPlan {
 async function executeTool(
   toolId: string,
   params: Record<string, any>,
-  token: 'XLM' | 'USD' = 'XLM'
+  token: 'XLM' = 'XLM'
 ): Promise<ToolCallResult> {
   const startTime = Date.now();
   const hiring = makeHiringDecision(toolId, availableTools);
@@ -466,7 +466,7 @@ async function executeTool(
 
 async function processQuery(
   query: string,
-  token: 'XLM' | 'USD' = 'XLM'
+  token: 'XLM' = 'XLM'
 ): Promise<{
   query: string;
   plan: AgentPlan;

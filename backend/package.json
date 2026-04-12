@@ -33,8 +33,7 @@
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
     "mppx": "^0.5.9",
-    "typescript": "^5.7.0",
-    "x402-stacks": "latest"
+    "typescript": "^5.7.0"
   },
   "devDependencies": {
     "tsx": "^4.19.0"

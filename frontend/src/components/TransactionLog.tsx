@@ -137,8 +137,8 @@ function PaymentCard({ payment }: { payment: Payment }) {
             </span>
           )}
         </div>
-        <span className={`badge badge-${payment.token.toLowerCase() === 'xlm' ? 'xlm' : 'xlm'}`} style={{ fontSize: '0.55rem' }}>
-          {payment.amount} {payment.token}
+        <span className="badge badge-xlm" style={{ fontSize: '0.55rem' }} title="Stellar (XLM)">
+          {payment.amount}
         </span>
       </div>
 
