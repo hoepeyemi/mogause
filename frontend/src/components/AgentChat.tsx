@@ -219,13 +219,29 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
         } catch (e) { console.error('SSE A2A Error:', e); }
       });
 
-      // 5. Completion
+      // 5. Protocol Trace Events (x402 handshake, payment verification, etc.)
+      sse.addEventListener('protocol_trace', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onProtocolTrace(data);
+        } catch (e) { console.error('SSE Protocol Trace Error:', e); }
+      });
+
+      // 6. Hiring Decision Events (Agent selection with alternatives)
+      sse.addEventListener('hiring_decision', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onProtocolTrace(data);
+        } catch (e) { console.error('SSE Hiring Decision Error:', e); }
+      });
+
+      // 7. Completion
       sse.addEventListener('done', () => {
         setAgentStatus('idle');
         setIsProcessing(false);
       });
 
-      // 6. Connection error — only handle via onerror, NOT the 'error' event listener
+      // 8. Connection error — only handle via onerror, NOT the 'error' event listener
       //    The EventSource 'error' event fires on EVERY connection failure (no data),
       //    so we must NOT add messages here to avoid spam.
 
@@ -291,11 +307,36 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
         body: JSON.stringify({ query: userMsg, clientId: clientId.current })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const ct = response.headers.get('content-type') || '';
+      let result: Record<string, unknown> & { finalAnswer?: string };
+      try {
+        if (ct.includes('application/json')) {
+          result = (await response.json()) as typeof result;
+        } else {
+          const raw = await response.text();
+          result = { error: 'non_json', raw } as typeof result;
+        }
+      } catch {
+        result = {} as typeof result;
       }
 
-      const result = await response.json();
+      if (!response.ok) {
+        const detail =
+          (typeof result.message === 'string' && result.message) ||
+          (typeof result.error === 'string' && result.error) ||
+          (typeof (result as { raw?: string }).raw === 'string' && (result as { raw: string }).raw) ||
+          JSON.stringify(result).slice(0, 800);
+        setMessages(prev => [...prev, {
+          role: 'system',
+          content:
+            `**Error (HTTP ${response.status}):** ${detail}\n\n` +
+            `Request: \`${API_URL}/api/agent/query\``,
+          depth: 0,
+        }]);
+        setIsProcessing(false);
+        setAgentStatus('idle');
+        return;
+      }
 
       // The final result is also sent via SSE 'done', but we can update UI here from the direct response too
       if (result.finalAnswer) {
@@ -312,7 +353,17 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
 
     } catch (error) {
       console.error('API Error:', error);
-      setMessages(prev => [...prev, { role: 'system', content: `**Error:** Failed to connect to agent service.` }]);
+      const msg = error instanceof Error ? error.message : String(error);
+      const isNetwork =
+        msg === 'Failed to fetch' ||
+        msg.includes('NetworkError') ||
+        msg.includes('Load failed') ||
+        (typeof navigator !== 'undefined' && !navigator.onLine) ||
+        error instanceof TypeError;
+      const content = isNetwork
+        ? `**Error:** Cannot reach the backend at \`${API_URL}\`. Start the API (e.g. \`cd backend && npm run dev\`, or root \`yarn dev\`), set \`NEXT_PUBLIC_API_URL\` in the frontend env if the API is not on port 3001, then refresh.`
+        : `**Error:** ${msg}`;
+      setMessages(prev => [...prev, { role: 'system', content, depth: 0 }]);
       setIsProcessing(false);
       setAgentStatus('idle');
     }

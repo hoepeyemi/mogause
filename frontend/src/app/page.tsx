@@ -36,7 +36,37 @@ export default function Home() {
       setHiringDecisions(prev => [...prev, decisionLog]);
       setRefreshTrigger(prev => prev + 1); // Bump refresh for graph update on hire
     } else {
-      setProtocolData(prev => [...prev, log]);
+      let trace = log;
+      if (log?.type === 'payment') {
+        const h: Record<string, string> = {};
+        if (typeof log.transaction === 'string' && log.transaction) {
+          h.transaction = log.transaction.length > 72 ? `${log.transaction.slice(0, 72)}…` : log.transaction;
+        }
+        if (log.explorerUrl) h['explorer-url'] = log.explorerUrl;
+        trace = {
+          step: `Payment · ${log.endpoint || log.worker || 'settled'}`,
+          httpStatus: 200,
+          headers: h,
+          timestamp: log.timestamp || new Date().toISOString(),
+        };
+      } else if (log?.label) {
+        trace = {
+          step: log.detail ? `${log.label} — ${log.detail}` : String(log.label),
+          httpStatus: log.status === 'complete' ? 200 : 102,
+          headers: {},
+          timestamp: log.timestamp || new Date().toISOString(),
+        };
+      } else if (log?.step && typeof log.httpStatus === 'number' && log.headers && typeof log.headers === 'object') {
+        trace = log;
+      } else {
+        trace = {
+          step: log?.content?.slice(0, 140) || log?.type || 'Event',
+          httpStatus: typeof log.httpStatus === 'number' ? log.httpStatus : 200,
+          headers: log?.headers && typeof log.headers === 'object' ? log.headers : {},
+          timestamp: log.timestamp || new Date().toISOString(),
+        };
+      }
+      setProtocolData(prev => [...prev, trace]);
     }
   };
 

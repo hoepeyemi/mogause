@@ -33,14 +33,29 @@ export default function ProtocolTrace({ traces, hiringDecisions }: Props) {
   const [tab, setTab] = useState<'protocol' | 'hiring'>('protocol');
   const [showTechnical, setShowTechnical] = useState(false);
 
+  // Helper to check if timestamp is valid
+  const isValidTimestamp = (ts: string | number | undefined): boolean => {
+    if (!ts) return false;
+    try {
+      const date = typeof ts === 'string' ? new Date(ts) : new Date(ts);
+      return !isNaN(date.getTime());
+    } catch {
+      return false;
+    }
+  };
+
+  // Filter traces and hiring decisions to only show entries with valid timestamps
+  const validTraces = traces.filter(t => isValidTimestamp(t.timestamp));
+  const validHiringDecisions = hiringDecisions.filter(d => isValidTimestamp((d as any).timestamp));
+
   return (
     <div className="glass-panel" style={{ height: '100%', padding: 14, display: 'flex', flexDirection: 'column' }}>
       {/* Header with tabs */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ display: 'flex', gap: 4 }}>
           {([
-            { key: 'protocol', label: t.techTrace, count: traces.length },
-            { key: 'hiring', label: t.hiringLog, count: hiringDecisions.length },
+            { key: 'protocol', label: t.techTrace, count: validTraces.length },
+            { key: 'hiring', label: t.hiringLog, count: validHiringDecisions.length },
           ] as const).map(t_tab => (
             <button
               key={t_tab.key}
@@ -60,7 +75,7 @@ export default function ProtocolTrace({ traces, hiringDecisions }: Props) {
           ))}
         </div>
 
-        {tab === 'protocol' && traces.length > 0 && (
+        {tab === 'protocol' && validTraces.length > 0 && (
           <button
             onClick={() => setShowTechnical(!showTechnical)}
             style={{
@@ -81,16 +96,16 @@ export default function ProtocolTrace({ traces, hiringDecisions }: Props) {
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {tab === 'protocol' ? (
-          traces.length === 0 ? (
+          validTraces.length === 0 ? (
             <EmptyState text={t.emptyProtocol} />
           ) : (
-            traces.map((trace, i) => <TraceCard key={i} trace={trace} index={i} showTechnical={showTechnical} />)
+            validTraces.map((trace, i) => <TraceCard key={i} trace={trace} index={i} showTechnical={showTechnical} />)
           )
         ) : (
-          hiringDecisions.length === 0 ? (
+          validHiringDecisions.length === 0 ? (
             <EmptyState text={t.emptyHiring} />
           ) : (
-            hiringDecisions.map((decision, i) => <HiringCard key={i} decision={decision} />)
+            validHiringDecisions.map((decision, i) => <HiringCard key={i} decision={decision} />)
           )
         )}
       </div>
@@ -105,9 +120,10 @@ function TraceCard({ trace, index, showTechnical }: { trace: ProtocolTraceEntry;
   const formatTimestamp = (ts: string | number) => {
     try {
       const date = typeof ts === 'string' ? new Date(ts) : new Date(ts);
+      if (isNaN(date.getTime())) return '';
       return date.toLocaleTimeString();
     } catch {
-      return 'N/A';
+      return '';
     }
   };
 
@@ -134,10 +150,16 @@ function TraceCard({ trace, index, showTechnical }: { trace: ProtocolTraceEntry;
         }}>
           {trace.httpStatus}
         </span>
-        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, flex: 1 }}>
+        <span style={{
+          fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, flex: 1,
+          minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
           {trace.step}
         </span>
-        <span style={{ fontSize: '0.5rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+        <span style={{
+          fontSize: '0.5rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
+          flexShrink: 0, marginLeft: 8,
+        }}>
           {formatTimestamp(trace.timestamp)}
         </span>
         <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
@@ -172,12 +194,18 @@ function TraceCard({ trace, index, showTechnical }: { trace: ProtocolTraceEntry;
           <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: 4 }}>
             Response Headers:
           </div>
-          {Object.entries(trace.headers || {}).map(([k, v]) => (
-            <div key={k}>
-              <span style={{ color: '#FF854B' }}>{k}:</span>{' '}
-              <span style={{ color: 'var(--text-secondary)' }}>{typeof v === 'string' ? v.slice(0, 120) : JSON.stringify(v).slice(0, 120)}</span>
-            </div>
-          ))}
+          {Object.keys(trace.headers || {}).length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No response headers recorded for this step.</div>
+          ) : (
+            Object.entries(trace.headers || {}).map(([k, v]) => (
+              <div key={k}>
+                <span style={{ color: '#FF854B' }}>{k}:</span>{' '}
+                <span style={{ color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                  {typeof v === 'string' ? v.slice(0, 400) : JSON.stringify(v).slice(0, 400)}
+                </span>
+              </div>
+            ))
+          )}
 
           {trace.paymentPayload && (
             <>

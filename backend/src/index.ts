@@ -32,11 +32,13 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
+import { Receipt } from 'mppx';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { Mppx, stellar } from '@stellar/mpp/charge/server';
+import { Mppx, stellar, Store } from '@stellar/mpp/charge/server';
+import { Mppx as MppxChargeClient, stellar as stellarChargeClient } from '@stellar/mpp/charge/client';
 import { XLM_SAC_TESTNET } from '@stellar/mpp';
 import { Keypair } from '@stellar/stellar-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -53,24 +55,70 @@ dotenv.config();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const NETWORK = (process.env.STELLAR_NETWORK as 'stellar:testnet' | 'stellar:pubnet') || 'stellar:testnet';
-const SERVER_ADDRESS = process.env.SERVER_ADDRESS || 'G...'; // Your Stellar Public Key
-const EXPLORER_BASE = 'https://stellar.org/explorer';
-const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY;
+const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY || process.env.MPP_SECRET_KEY;
+
+/** When true, missing or invalid on-chain settlement throws (surfaces payment pipeline bugs). */
+function mppSettlementRequired(): boolean {
+  return Boolean(AGENT_PRIVATE_KEY) && process.env.SIMULATION_MODE !== 'true';
+}
+
+/** Stellar account public key (G + 55 base32 chars). */
+function isStellarAccountId(value: string): boolean {
+  return /^G[A-Z2-7]{55}$/.test(value);
+}
+
+function resolveChargeRecipientPublicKey(): string {
+  const fromEnv = (process.env.SERVER_ADDRESS || process.env.STELLAR_RECIPIENT || '').trim();
+  if (isStellarAccountId(fromEnv)) return fromEnv;
+  if (AGENT_PRIVATE_KEY) {
+    try {
+      return Keypair.fromSecret(AGENT_PRIVATE_KEY).publicKey();
+    } catch {
+      /* fall through */
+    }
+  }
+  return fromEnv;
+}
+
+const SERVER_ADDRESS = resolveChargeRecipientPublicKey();
+
+/** Stellar transaction hashes are 64 lowercase hex characters (no 0x prefix). */
+function isStellarTransactionHash(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const v = value.trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(v);
+}
+
+/** Deep link to a transaction on StellarExpert (testnet or public network). */
+function stellarExpertTxUrl(txnHash: string): string | undefined {
+  if (!isStellarTransactionHash(txnHash)) return undefined;
+  const h = txnHash.trim().toLowerCase();
+  const net = NETWORK === 'stellar:pubnet' ? 'public' : 'testnet';
+  return `https://stellar.expert/explorer/${net}/tx/${h}`;
+}
+
+const STELLAR_EXPERT_EXPLORER_HOME =
+  NETWORK === 'stellar:pubnet'
+    ? 'https://stellar.expert/explorer/public'
+    : 'https://stellar.expert/explorer/testnet';
 
 // Initialize Mppx Server for Charge Payments
 const mppx = Mppx.create({
-  secretKey: AGENT_PRIVATE_KEY,
+  secretKey: AGENT_PRIVATE_KEY!,
   methods: [
     stellar.charge({
       recipient: SERVER_ADDRESS,
       currency: XLM_SAC_TESTNET,
       network: NETWORK,
+      store: Store.memory(),
     }),
   ],
 });
 
 if (!AGENT_PRIVATE_KEY) {
-  console.warn('[WARN] AGENT_PRIVATE_KEY not set. Agent will use simulated payments.');
+  console.warn('[WARN] AGENT_PRIVATE_KEY (or MPP_SECRET_KEY) not set. Paid routes cannot verify MPP charges.');
+} else if (SERVER_ADDRESS && !isStellarAccountId(SERVER_ADDRESS)) {
+  console.warn('[WARN] SERVER_ADDRESS / STELLAR_RECIPIENT is not a valid Stellar public key; check your .env.');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -79,11 +127,62 @@ if (!AGENT_PRIVATE_KEY) {
 
 const app = express();
 
-// Agent Client for A2A calls
-const agentClient = axios.create({
-  baseURL: `http://${HOST}:${PORT}`,
-  headers: { 'Content-Type': 'application/json' },
-});
+/** Loopback base URL for the manager agent to call paid worker routes on this process. */
+function internalWorkerHttpBase(): string {
+  const fromEnv = (process.env.AGENT_HTTP_BASE_URL || '').trim().replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+  const loopHost = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
+  return `http://${loopHost}:${PORT}`;
+}
+
+let managerMppFetch: typeof globalThis.fetch | undefined;
+
+/** Fetch that completes Stellar MPP 402 → pay → retry (required for paid internal POSTs). */
+function getManagerMppFetch(): typeof globalThis.fetch {
+  if (!AGENT_PRIVATE_KEY) return globalThis.fetch;
+  if (!managerMppFetch) {
+    const c = MppxChargeClient.create({
+      methods: [stellarChargeClient.charge({ secretKey: AGENT_PRIVATE_KEY })],
+      polyfill: false,
+      fetch: globalThis.fetch,
+    });
+    managerMppFetch = c.fetch;
+  }
+  return managerMppFetch;
+}
+
+async function callInternalPaidWorker(
+  endpoint: string,
+  token: string,
+  body: unknown,
+): Promise<{ status: number; headers: globalThis.Headers; data: unknown }> {
+  const base = internalWorkerHttpBase();
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${base}${path}?token=${encodeURIComponent(token)}`;
+  const useMpp =
+    AGENT_PRIVATE_KEY &&
+    process.env.SIMULATION_MODE !== 'true';
+  const fetcher = useMpp ? getManagerMppFetch() : globalThis.fetch;
+  const res = await fetcher(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  const ct = res.headers.get('content-type') || '';
+  let data: unknown;
+  if (ct.includes('application/json')) {
+    data = await res.json().catch(() => ({}));
+  } else {
+    data = await res.text().catch(() => '');
+  }
+  if (mppSettlementRequired() && res.status !== 200) {
+    const errBody = typeof data === 'string' ? (data as string).slice(0, 500) : JSON.stringify(data).slice(0, 500);
+    throw new Error(
+      `[MPP A2A] callInternalPaidWorker: HTTP ${res.status} for POST ${url} (MPP wallet expected to settle). Body: ${errBody}`,
+    );
+  }
+  return { status: res.status, headers: res.headers, data };
+}
 
 // AI Clients
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -93,7 +192,7 @@ const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
-  exposedHeaders: ['X-Payment-Response', 'Payment-Response', 'X-402-Version', 'WWW-Authenticate'],
+  exposedHeaders: ['X-Payment-Response', 'Payment-Response', 'Payment-Receipt', 'X-402-Version', 'WWW-Authenticate'],
 }));
 app.use(morgan('short'));
 app.use(express.json({ limit: '2mb' }));
@@ -111,7 +210,8 @@ interface PaymentLog {
   transaction: string;
   token: string;
   amount: string;
-  explorerUrl: string;
+  /** Present only for verified on-chain transaction hashes (64-char hex). */
+  explorerUrl?: string;
   isA2A: boolean;        // Agent-to-Agent payment
   parentJobId?: string;  // For recursive hiring
   depth: number;         // 0 = user→agent, 1 = agent→agent, etc.
@@ -381,6 +481,20 @@ agentRegistry.forEach(a => {
 // Payment Logging
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Ledger transaction hash after a successful MPP charge.
+ * `@stellar/mpp` sets this on the receipt as `reference` (see Charge settlement in stellar-mpp-sdk).
+ */
+function extractMppSettlementTxHash(mppResult: unknown): string | undefined {
+  if (!mppResult || typeof mppResult !== 'object') return undefined;
+  const receipt = (mppResult as { receipt?: unknown }).receipt;
+  if (!receipt || typeof receipt !== 'object') return undefined;
+  const r = receipt as { reference?: unknown; transactionHash?: unknown };
+  const ref = r.reference ?? r.transactionHash;
+  if (typeof ref === 'string' && ref.trim()) return ref.trim();
+  return undefined;
+}
+
 function logPayment(
   req: Request,
   endpoint: string,
@@ -389,8 +503,26 @@ function logPayment(
   opts: { isA2A?: boolean; depth?: number; parentJobId?: string; workerName?: string } = {}
 ): PaymentLog | null {
   const mppResult = (req as any).mppResult;
-  const txId = mppResult?.receipt?.transactionHash || `sim_${(++paymentIdCounter).toString(16).padStart(8, '0')}`;
-  const explorerUrl = `${EXPLORER_BASE}/tx/${txId}`;
+  let chainHash = extractMppSettlementTxHash(mppResult);
+  if (!chainHash) {
+    const rawHeader = (req as any)._mppPaymentReceiptRaw as string | undefined;
+    if (rawHeader) chainHash = parseTxHashFromPaymentReceiptHeader(rawHeader);
+  }
+  const raw = typeof chainHash === 'string' ? chainHash.trim() : '';
+  if (mppSettlementRequired()) {
+    if (!raw) {
+      throw new Error(
+        '[MPP logPayment] No on-chain tx hash: receipt.reference empty and Payment-Receipt header missing or unparsed (stage: deferred log after res.json).',
+      );
+    }
+    if (!isStellarTransactionHash(raw)) {
+      throw new Error(
+        `[MPP logPayment] Settlement value is not a 64-char hex Stellar ledger tx hash (got: ${JSON.stringify(raw)}).`,
+      );
+    }
+  }
+  const txId = raw || `sim_${(++paymentIdCounter).toString(16).padStart(8, '0')}`;
+  const explorerUrl = stellarExpertTxUrl(raw);
 
   const displayAmount = `${priceConfig.xlmAmount} XLM`;
 
@@ -411,7 +543,7 @@ function logPayment(
     transaction: txId,
     token,
     amount: displayAmount,
-    explorerUrl,
+    ...(explorerUrl ? { explorerUrl } : {}),
     isA2A: opts.isA2A || false,
     parentJobId: opts.parentJobId,
     depth: opts.depth || 0,
@@ -453,38 +585,292 @@ function decodePaymentResponse(header: string): { transaction: string } | null {
   }
 }
 
+function readPaymentHeader(
+  headers: globalThis.Headers | Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const lower = name.toLowerCase();
+  if (headers && typeof (headers as globalThis.Headers).get === 'function') {
+    const h = headers as globalThis.Headers;
+    return h.get(name) ?? h.get(lower) ?? undefined;
+  }
+  const rec = headers as Record<string, string | string[] | undefined>;
+  const v = rec[lower] ?? rec[name];
+  if (Array.isArray(v)) return v[0];
+  return typeof v === 'string' ? v : undefined;
+}
+
+const MPP_JSON_PATCHED = Symbol('mppJsonPatched');
+
+/** Build a Fetch `Response` with JSON body for mppx `withReceipt` (Node may lack `Response.json`). */
+function bodyToWebJsonResponse(body: unknown): globalThis.Response {
+  try {
+    const R = globalThis.Response as typeof globalThis.Response & { json?: (b: unknown) => globalThis.Response };
+    if (typeof R.json === 'function') {
+      return R.json(body);
+    }
+  } catch {
+    /* fall through */
+  }
+  return new globalThis.Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}
+
+function parseTxHashFromPaymentReceiptHeader(encoded: string): string | undefined {
+  try {
+    const r = Receipt.deserialize(encoded);
+    const ref = typeof r.reference === 'string' ? r.reference.trim() : '';
+    return ref || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Settlement id for A2A worker calls: MPP `Payment-Receipt`, JSON `payment`, or legacy `payment-response`. */
+function extractA2aPaymentFromWorkerResponse(
+  headers: globalThis.Headers | Record<string, string | string[] | undefined>,
+  data: unknown,
+  token: string,
+  price: PriceConfig,
+): { transaction: string; token: string; amount: string; explorerUrl?: string } {
+  const strict = mppSettlementRequired();
+  const pr = readPaymentHeader(headers, 'payment-receipt');
+  if (pr) {
+    const hash = parseTxHashFromPaymentReceiptHeader(pr);
+    if (hash && isStellarTransactionHash(hash)) {
+      const ex = stellarExpertTxUrl(hash);
+      return {
+        transaction: hash,
+        token,
+        amount: `${price.xlmAmount} XLM`,
+        ...(ex ? { explorerUrl: ex } : {}),
+      };
+    }
+    if (strict) {
+      throw new Error(
+        `[MPP A2A extractA2aPayment] Payment-Receipt header present but not a valid 64-hex ledger tx (parsed reference=${JSON.stringify(hash)}).`,
+      );
+    }
+  }
+  const pay = data && typeof data === 'object'
+    ? (data as { payment?: { transaction?: string; explorerUrl?: string; token?: string; amount?: string } }).payment
+    : undefined;
+  if (pay && typeof pay.transaction === 'string' && pay.transaction.trim()) {
+    const tx = pay.transaction.trim();
+    if (strict && !isStellarTransactionHash(tx)) {
+      throw new Error(
+        `[MPP A2A extractA2aPayment] JSON body payment.transaction is not a 64-hex Stellar tx (got: ${JSON.stringify(tx)}).`,
+      );
+    }
+    const ex =
+      typeof pay.explorerUrl === 'string'
+        ? pay.explorerUrl
+        : isStellarTransactionHash(tx)
+          ? stellarExpertTxUrl(tx)
+          : undefined;
+    return {
+      transaction: tx,
+      token: typeof pay.token === 'string' ? pay.token : token,
+      amount: typeof pay.amount === 'string' ? pay.amount : `${price.xlmAmount} XLM`,
+      ...(ex ? { explorerUrl: ex } : {}),
+    };
+  }
+  const legacy =
+    readPaymentHeader(headers, 'payment-response') ||
+    readPaymentHeader(headers, 'x-payment-response') ||
+    '';
+  const decoded = decodePaymentResponse(legacy);
+  if (decoded?.transaction) {
+    const tx = decoded.transaction.trim();
+    if (strict && !isStellarTransactionHash(tx)) {
+      throw new Error(
+        `[MPP A2A extractA2aPayment] payment-response / x-payment-response is not a 64-hex Stellar tx (got: ${JSON.stringify(tx)}).`,
+      );
+    }
+    const ex = isStellarTransactionHash(tx) ? stellarExpertTxUrl(tx) : undefined;
+    return {
+      transaction: tx,
+      token,
+      amount: `${price.xlmAmount} XLM`,
+      ...(ex ? { explorerUrl: ex } : {}),
+    };
+  }
+  if (strict) {
+    throw new Error(
+      '[MPP A2A extractA2aPayment] No settlement found after 200 OK: missing Payment-Receipt, JSON payment.transaction, and legacy payment-response headers.',
+    );
+  }
+  return {
+    transaction: `pay_${Math.random().toString(16).slice(2, 10)}`,
+    token,
+    amount: `${price.xlmAmount} XLM`,
+  };
+}
+
+/**
+ * mppx returns `{ status, withReceipt }` — the ledger receipt only appears after `withReceipt()`.
+ * Patch `res.json` once so we set `Payment-Receipt`, deserialize into `req.mppResult`, then run deferred `logPayment`.
+ */
+function installMppResJsonPatch(
+  req: Request,
+  res: Response,
+  chargeResult: { status: number; withReceipt: (r: globalThis.Response) => globalThis.Response } | null,
+) {
+  if ((res as unknown as Record<symbol, boolean>)[MPP_JSON_PATCHED]) return;
+  (res as unknown as Record<symbol, boolean>)[MPP_JSON_PATCHED] = true;
+
+  const origJson = res.json.bind(res);
+  res.json = function mppAwareJson(body: unknown) {
+    const paid =
+      chargeResult &&
+      typeof chargeResult.withReceipt === 'function' &&
+      Number((chargeResult as { status: number }).status) === 200;
+
+    if (paid) {
+      try {
+        const wrapped = chargeResult.withReceipt(bodyToWebJsonResponse(body)) as globalThis.Response;
+        const pr = wrapped.headers.get('Payment-Receipt');
+        if (mppSettlementRequired()) {
+          if (!pr) {
+            throw new Error(
+              '[MPP installMppResJsonPatch] withReceipt() returned a Response without Payment-Receipt — settlement not attached to JSON response.',
+            );
+          }
+          (req as any)._mppPaymentReceiptRaw = pr;
+          res.setHeader('Payment-Receipt', pr);
+          let receipt: ReturnType<typeof Receipt.deserialize>;
+          try {
+            receipt = Receipt.deserialize(pr);
+          } catch (e) {
+            throw new Error(
+              `[MPP installMppResJsonPatch] Payment-Receipt header could not be deserialized: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+          (req as any).mppResult = { receipt };
+          const ref = parseTxHashFromPaymentReceiptHeader(pr);
+          if (!ref || !isStellarTransactionHash(ref)) {
+            throw new Error(
+              `[MPP installMppResJsonPatch] receipt.reference is missing or not a 64-hex Stellar tx (reference=${JSON.stringify(ref)}).`,
+            );
+          }
+        } else if (pr) {
+          (req as any)._mppPaymentReceiptRaw = pr;
+          res.setHeader('Payment-Receipt', pr);
+          try {
+            (req as any).mppResult = { receipt: Receipt.deserialize(pr) };
+          } catch (e) {
+            console.warn('[MPP] Payment-Receipt deserialize failed', e);
+          }
+        }
+      } catch (e) {
+        if (mppSettlementRequired()) {
+          throw e instanceof Error ? e : new Error(String(e));
+        }
+        console.error('[MPP] withReceipt failed', e);
+      }
+    }
+
+    const deferred = (req as any)._mppDeferredLogPayment as undefined | (() => void);
+    if (typeof deferred === 'function') {
+      try {
+        deferred();
+      } finally {
+        delete (req as any)._mppDeferredLogPayment;
+      }
+    }
+
+    return origJson(body as any);
+  };
+}
+
+function scheduleDeferredPaymentLog(
+  req: Request,
+  payload: Record<string, unknown>,
+  endpoint: string,
+  token: string,
+  priceConfig: PriceConfig,
+  opts: { isA2A?: boolean; depth?: number; parentJobId?: string; workerName?: string } = {},
+) {
+  (req as any)._mppDeferredLogPayment = () => {
+    const entry = logPayment(req, endpoint, token, priceConfig, opts);
+    payload.payment = entry
+      ? {
+          transaction: entry.transaction,
+          token: entry.token,
+          amount: entry.amount,
+          explorerUrl: entry.explorerUrl,
+        }
+      : null;
+  };
+}
+
+function newAgentJobId(): string {
+  return `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Public URL for this request (used to build a WHATWG Request for `@stellar/mpp` / mppx).
+ * Prefer `Host` and `X-Forwarded-Proto` so challenges match browser-facing URLs behind proxies.
+ */
+function requestPublicUrl(expressReq: Request): string {
+  const xfp = expressReq.get('x-forwarded-proto');
+  const proto = (xfp ? xfp.split(',')[0]?.trim() : '') || expressReq.protocol || 'http';
+  const host = expressReq.get('host') || expressReq.hostname || 'localhost';
+  const path = expressReq.originalUrl || expressReq.url || '/';
+  return `${proto}://${host}${path}`;
+}
+
+/** Express `req` is not a Fetch API `Request`; mppx charge handlers expect the latter. */
+function expressReqToWebRequest(expressReq: Request): globalThis.Request {
+  return new globalThis.Request(requestPublicUrl(expressReq), {
+    method: expressReq.method,
+    headers: expressReq.headers as HeadersInit,
+  });
+}
+
+/** mppx 402 challenges are a Fetch `Response` with `WWW-Authenticate` (required by the MPP client). Express `.send(challenge)` drops those headers. */
+async function sendMpp402ChallengeToExpress(res: Response, challenge: globalThis.Response) {
+  const hopByHop = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade']);
+  res.status(challenge.status);
+  challenge.headers.forEach((value, key) => {
+    if (hopByHop.has(key.toLowerCase())) return;
+    res.append(key, value);
+  });
+  const body = Buffer.from(await challenge.arrayBuffer());
+  res.end(body);
+}
+
 function createPaidRoute(config: PriceConfig) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    // Simulation Mode Bypass
     if (process.env.SIMULATION_MODE === 'true') {
       console.warn(`[PAYMENT] [SIMULATION] Bypassing payment for ${req.path}`);
+      installMppResJsonPatch(req, res, null);
       next();
       return;
     }
 
     try {
-      // Use Mppx charge handler
-      // Note: mppx.charge returns a function that takes the request
       const chargeHandler = mppx.charge({
-        amount: config.xlmAmount.toString(), // Using xlmAmount as XLM amount
+        amount: config.xlmAmount.toString(),
         description: config.description,
       });
 
-      // The MPP SDK expects a standard Request object. 
-      // Express requests are slightly different, so we wrap it or use the handler.
-      // Since Mppx.charge is designed for Web Request/Response, we adapt it.
-      
-      const result = await chargeHandler(req as any);
+      const result = await chargeHandler(expressReqToWebRequest(req));
 
       if (result.status === 402) {
-        // Return the challenge response (402 Payment Required)
-        return res.status(402).send(result.challenge);
+        const ch = result.challenge as globalThis.Response;
+        if (!ch || typeof ch.headers?.forEach !== 'function') {
+          console.error('[MPP] Expected result.challenge to be a Fetch Response with headers');
+          return res.status(500).json({ error: 'Invalid 402 challenge from payment handler' });
+        }
+        await sendMpp402ChallengeToExpress(res, ch);
+        return;
       }
 
-      // If payment is verified, we can proceed. 
-      // result.withReceipt is used to attach the receipt to the final response.
-      // We store the result on the request for the route handler to use.
-      (req as any).mppResult = result;
+      (req as any).mppChargeResult = result;
+      installMppResJsonPatch(req, res, result as { status: number; withReceipt: (r: globalThis.Response) => globalThis.Response });
       next();
     } catch (error: any) {
       console.error('[MPP PAYMENT ERROR]', error);
@@ -800,33 +1186,32 @@ async function fetchRealWeather(city: string): Promise<{ temp: number; condition
 
 app.post('/api/weather', createPaidRoute(PRICES.weather), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/weather', token, PRICES.weather, { workerName: 'Weather Oracle' });
+  const payload: Record<string, unknown> = {};
+  scheduleDeferredPaymentLog(req, payload, '/api/weather', token, PRICES.weather, { workerName: 'Weather Oracle' });
 
   const city = (req.body.city || 'new york').trim();
   const weather = await fetchRealWeather(city);
 
-  res.json({
+  Object.assign(payload, {
     city: city.charAt(0).toUpperCase() + city.slice(1).toLowerCase(),
     weather,
     source: 'Weather Oracle Agent (wttr.in)',
     agentId: 'weather-agent',
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
+    payment: null,
   });
+  res.json(payload);
 });
 
 // ── Summarize ──────────────────────────────────────────────────────────────
 
 app.post('/api/summarize', createPaidRoute(PRICES.summarize), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/summarize', token, PRICES.summarize, { workerName: 'Summarizer Pro' });
+  const payload: Record<string, unknown> = {};
+  scheduleDeferredPaymentLog(req, payload, '/api/summarize', token, PRICES.summarize, { workerName: 'Summarizer Pro' });
 
   const { text, maxLength } = req.body;
   if (!text || typeof text !== 'string') {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing "text" field.' });
     return;
   }
@@ -851,30 +1236,28 @@ app.post('/api/summarize', createPaidRoute(PRICES.summarize), async (req: Reques
     summary = text.slice(0, maxLength || 150);
   }
 
-  res.json({
+  Object.assign(payload, {
     original_length: text.length,
     summary_length: summary.length,
     summary,
     compression: `${Math.round((1 - summary.length / text.length) * 100)}%`,
     source: 'Summarizer Pro Agent',
     agentId: 'summarizer-agent',
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
+    payment: null,
   });
+  res.json(payload);
 });
 
 // ── Math Solver ────────────────────────────────────────────────────────────
 
 app.post('/api/math-solve', createPaidRoute(PRICES.mathSolve), (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/math-solve', token, PRICES.mathSolve, { workerName: 'MathSolver v3' });
+  const payload: Record<string, unknown> = {};
+  scheduleDeferredPaymentLog(req, payload, '/api/math-solve', token, PRICES.mathSolve, { workerName: 'MathSolver v3' });
 
   const { expression } = req.body;
   if (!expression || typeof expression !== 'string') {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing "expression" field.' });
     return;
   }
@@ -897,29 +1280,27 @@ app.post('/api/math-solve', createPaidRoute(PRICES.mathSolve), (req: Request, re
     steps.push(`Failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  res.json({
+  Object.assign(payload, {
     expression,
     result,
     steps,
     source: 'MathSolver v3 Agent',
     agentId: 'math-agent',
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
+    payment: null,
   });
+  res.json(payload);
 });
 
 // ── Sentiment Analysis ─────────────────────────────────────────────────────
 
 app.post('/api/sentiment', createPaidRoute(PRICES.sentiment), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/sentiment', token, PRICES.sentiment, { workerName: 'SentimentAI' });
+  const payload: Record<string, unknown> = {};
+  scheduleDeferredPaymentLog(req, payload, '/api/sentiment', token, PRICES.sentiment, { workerName: 'SentimentAI' });
 
   const { text } = req.body;
   if (!text || typeof text !== 'string') {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing "text" field.' });
     return;
   }
@@ -958,29 +1339,27 @@ app.post('/api/sentiment', createPaidRoute(PRICES.sentiment), async (req: Reques
     score = 0.5;
   }
 
-  res.json({
+  Object.assign(payload, {
     sentiment,
     score: typeof score === 'number' ? score.toFixed(2) : score,
     confidence: `${confidence}%`,
     source: 'SentimentAI Agent',
     agentId: 'sentiment-agent',
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
+    payment: null,
   });
+  res.json(payload);
 });
 
 // ── Code Explain ───────────────────────────────────────────────────────────
 
 app.post('/api/code-explain', createPaidRoute(PRICES.codeExplain), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/code-explain', token, PRICES.codeExplain, { workerName: 'CodeExplainer' });
+  const payload: Record<string, unknown> = {};
+  scheduleDeferredPaymentLog(req, payload, '/api/code-explain', token, PRICES.codeExplain, { workerName: 'CodeExplainer' });
 
   const { code } = req.body;
   if (!code || typeof code !== 'string') {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing "code" field.' });
     return;
   }
@@ -1003,29 +1382,27 @@ app.post('/api/code-explain', createPaidRoute(PRICES.codeExplain), async (req: R
     explanation = 'Code analysis temporarily unavailable.';
   }
 
-  res.json({
+  Object.assign(payload, {
     explanation,
     lineCount: code.split('\n').length,
     complexity: code.split('\n').length > 20 ? 'High' : code.split('\n').length > 5 ? 'Medium' : 'Low',
     source: 'CodeExplainer Agent',
     agentId: 'code-agent',
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
+    payment: null,
   });
+  res.json(payload);
 });
 
 // ── Translation ────────────────────────────────────────────────────────────
 
 app.post('/api/agent/translate', createPaidRoute(PRICES.translate), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/agent/translate', token, PRICES.translate, { workerName: 'PolyglotAI' });
+  const payload: Record<string, unknown> = {};
+  scheduleDeferredPaymentLog(req, payload, '/api/agent/translate', token, PRICES.translate, { workerName: 'PolyglotAI' });
 
   const { text, targetLang } = req.body;
   if (!text) {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing "text" field.' });
     return;
   }
@@ -1047,19 +1424,15 @@ app.post('/api/agent/translate', createPaidRoute(PRICES.translate), async (req: 
     translation = `[${targetLang || 'es'}] ${text}`;
   }
 
-  res.json({
+  Object.assign(payload, {
     original: text,
     translation,
     targetLang: targetLang || 'Spanish',
     source: 'PolyglotAI Agent',
     agentId: 'translate-agent',
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
+    payment: null,
   });
+  res.json(payload);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1070,11 +1443,12 @@ app.post('/api/agent/translate', createPaidRoute(PRICES.translate), async (req: 
 
 app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/agent/research', token, PRICES.research, {
+  const jobId = newAgentJobId();
+  const out: Record<string, unknown> = { payment: null };
+  scheduleDeferredPaymentLog(req, out, '/api/agent/research', token, PRICES.research, {
     workerName: 'DeepResearch Alpha',
     isA2A: false,
   });
-  const jobId = paymentEntry?.id || 'unknown';
 
   // ── Protocol Trace Transparency: Log the x402 Handshake ──
   broadcastSSE('protocol_trace', {
@@ -1090,12 +1464,13 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
   broadcastSSE('protocol_trace', {
     step: 'X-402 Handshake: Payment Verified',
     httpStatus: 200,
-    headers: { 'x-payment-response': paymentEntry?.transaction || 'verified' },
+    headers: { 'x-payment-response': 'verified' },
     timestamp: new Date().toISOString(),
   });
 
   const { query } = req.body;
   if (!query) {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing query' });
     return;
   }
@@ -1114,6 +1489,7 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
       reason: 'Sourcing premium XLM historical datasets and ecosystem metadata',
       parentJobId: jobId,
       depth: 1,
+      timestamp: new Date().toISOString(),
     });
 
     const kagglePayment: PaymentLog = {
@@ -1125,7 +1501,6 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
       transaction: `a2a_${Math.random().toString(16).slice(2, 14)}`,
       token: token,
       amount: '0.02 XLM',
-      explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
       isA2A: true,
       parentJobId: jobId,
       depth: 1,
@@ -1186,6 +1561,7 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
     reason: 'Condensing research findings into executive summary',
     parentJobId: jobId,
     depth: 1,
+    timestamp: new Date().toISOString(),
   });
 
   // Simulate the sub-agent payment (in production, this goes through x402)
@@ -1198,7 +1574,6 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
     transaction: `a2a_${Math.random().toString(16).slice(2, 14)}`,
     token: token,
     amount: `${PRICES.summarize.xlmAmount} XLM`,
-    explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
     isA2A: true,
     parentJobId: jobId,
     depth: 1,
@@ -1224,6 +1599,7 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
     reason: 'Analyzing sentiment of research sources',
     parentJobId: jobId,
     depth: 1,
+    timestamp: new Date().toISOString(),
   });
 
   const subPayment2: PaymentLog = {
@@ -1235,7 +1611,6 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
     transaction: `a2a_${Math.random().toString(16).slice(2, 14)}`,
     token: token,
     amount: `${PRICES.sentiment.xlmAmount} XLM`,
-    explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
     isA2A: true,
     parentJobId: jobId,
     depth: 1,
@@ -1259,7 +1634,7 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
     researchAgent.reputation = Math.min(100, researchAgent.reputation + 0.1);
   }
 
-  res.json({
+  Object.assign(out, {
     result: researchResult,
     subAgentHires: subAgentResults,
     recursiveDepth: 1,
@@ -1272,27 +1647,24 @@ app.post('/api/agent/research', createPaidRoute(PRICES.research), async (req: Re
       { agent: 'Summarizer Pro', role: 'Executive Summary', depth: 1 },
       { agent: 'SentimentAI', role: 'Tone Analysis', depth: 1 },
     ],
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
   });
+  res.json(out);
 });
 
 // ── Coding Agent (hires CodeExplainer sub-agent for review) ────────────────
 
 app.post('/api/agent/code', createPaidRoute(PRICES.coding), async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const paymentEntry = logPayment(req, '/api/agent/code', token, PRICES.coding, {
+  const jobId = newAgentJobId();
+  const out: Record<string, unknown> = { payment: null };
+  scheduleDeferredPaymentLog(req, out, '/api/agent/code', token, PRICES.coding, {
     workerName: 'SeniorCoder GPT',
     isA2A: false,
   });
-  const jobId = paymentEntry?.id || 'unknown';
 
   const { spec, language } = req.body;
   if (!spec) {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(400).json({ error: 'Missing spec' });
     return;
   }
@@ -1325,6 +1697,7 @@ app.post('/api/agent/code', createPaidRoute(PRICES.coding), async (req: Request,
     reason: 'Self-review: verifying generated code quality',
     parentJobId: jobId,
     depth: 1,
+    timestamp: new Date().toISOString(),
   });
 
   const subPayment: PaymentLog = {
@@ -1336,7 +1709,6 @@ app.post('/api/agent/code', createPaidRoute(PRICES.coding), async (req: Request,
     transaction: `a2a_${Math.random().toString(16).slice(2, 14)}`,
     token: token,
     amount: `${PRICES.codeExplain.xlmAmount} XLM`,
-    explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
     isA2A: true,
     parentJobId: jobId,
     depth: 1,
@@ -1352,7 +1724,7 @@ app.post('/api/agent/code', createPaidRoute(PRICES.coding), async (req: Request,
     codingAgent.reputation = Math.min(100, codingAgent.reputation + 0.1);
   }
 
-  res.json({
+  Object.assign(out, {
     code: generatedCode,
     language: language || 'TypeScript',
     selfReview: {
@@ -1368,33 +1740,62 @@ app.post('/api/agent/code', createPaidRoute(PRICES.coding), async (req: Request,
       { agent: 'SeniorCoder GPT', role: 'Code Generation', depth: 0 },
       { agent: 'CodeExplainer', role: 'Quality Review', depth: 1 },
     ],
-    payment: paymentEntry ? {
-      transaction: paymentEntry.transaction,
-      token: paymentEntry.token,
-      amount: paymentEntry.amount,
-      explorerUrl: paymentEntry.explorerUrl,
-    } : null,
   });
+  res.json(out);
 });
 
-// ── Universal Agent Adapter Route (MCP-Lite) ───────────────────────────────
-app.post('/api/adapter/external/:agentId', async (req: Request, res: Response) => {
-  const { agentId } = req.params;
-  // Support both wrapped { task: ... } and direct body { query: ... }
-  const task = req.body.task || req.body;
-
-  try {
-    const result = await callExternalAgent(agentId as string, task || {});
-
-    // Simulate x402 payment headers for "Paid" external agents
-    res.set('x-monetization-token', 'mock-token-123');
-    res.set('x-402-cost', '50000'); // sats
-
-    res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ status: 'error', message: error.message });
+// ── Universal Agent Adapter Route (MCP-Lite) — same MPP charge gate as workers ──
+async function adapterExternalPaidGate(req: Request, res: Response, next: NextFunction) {
+  const agentId = req.params.agentId as string;
+  const agent = EXTERNAL_AGENTS.find(a => a.id === agentId);
+  if (!agent) {
+    res.status(404).json({ error: 'Unknown external agent', id: agentId });
+    return;
   }
-});
+  const priceConfig: PriceConfig = {
+    xlmAmount: agent.price.amount,
+    xlmDrops: Math.round(agent.price.amount * 10_000_000),
+    description: `External adapter: ${agent.name}`,
+    category: agent.category,
+  };
+  (req as any)._externalAdapterPriceConfig = priceConfig;
+  (req as any)._externalAdapterWorkerName = agent.name;
+  await createPaidRoute(priceConfig)(req, res, next);
+}
+
+app.post(
+  '/api/adapter/external/:agentId',
+  adapterExternalPaidGate,
+  async (req: Request, res: Response) => {
+    const { agentId } = req.params;
+    const priceConfig = (req as any)._externalAdapterPriceConfig as PriceConfig | undefined;
+    const workerName = ((req as any)._externalAdapterWorkerName as string) || 'External Agent';
+    const token = resolveToken(req);
+    const task = req.body.task || req.body;
+    const payload: Record<string, unknown> = { payment: null };
+    if (priceConfig) {
+      scheduleDeferredPaymentLog(
+        req,
+        payload,
+        `/api/adapter/external/${agentId}`,
+        token,
+        priceConfig,
+        { workerName, isA2A: false },
+      );
+    }
+
+    try {
+      const result = await callExternalAgent(agentId as string, task || {});
+      res.set('x-monetization-token', 'mock-token-123');
+      res.set('x-402-cost', '50000');
+      Object.assign(payload, result);
+      res.json(payload);
+    } catch (error: any) {
+      delete (req as any)._mppDeferredLogPayment;
+      res.status(500).json({ status: 'error', message: error.message });
+    }
+  },
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Manager Agent — Autonomous Orchestration Engine
@@ -1470,6 +1871,87 @@ function autonomousHiringDecision(
       : 'No alternatives available.');
 
   return { chosen, reason, alternatives };
+}
+
+/** Rich error text when a manager hire fails (used instead of silent sim_fallback when real settlement is required). */
+function formatManagerToolFailure(err: unknown, endpoint: string, toolId: string): string {
+  const e = err as { message?: string; response?: { status?: number; data?: unknown; headers?: unknown }; stack?: string };
+  const lines = [
+    `[MPP A2A] Manager hire failed for toolId="${toolId}" endpoint="${endpoint}".`,
+    `Refusing simulation fallback while MPP secrets are configured (set SIMULATION_MODE=true to allow mock settlement).`,
+    `cause.message=${e?.message || String(err)}`,
+  ];
+  if (e?.response?.status !== undefined) lines.push(`cause.response.status=${e.response.status}`);
+  if (e?.response?.data !== undefined) {
+    try {
+      lines.push(`cause.response.data=${JSON.stringify(e.response.data).slice(0, 800)}`);
+    } catch {
+      lines.push('cause.response.data=<unserializable>');
+    }
+  }
+  if (endpoint.includes('/api/adapter/external/')) {
+    lines.push(
+      'Hint: this path must be behind the same Stellar MPP charge gate as other paid routes (Payment-Receipt on 200).',
+    );
+  }
+  if (e?.stack) lines.push(`cause.stack:\n${e.stack}`);
+  return lines.join('\n');
+}
+
+/**
+ * LLM tool plans may use registry ids (e.g. `research-agent`) and omit or mis-shape `params`.
+ * Paid worker routes expect specific JSON fields — fill from the manager's user `query` when missing.
+ */
+function buildManagerInternalWorkerBody(
+  toolId: string,
+  endpoint: string,
+  tcParams: unknown,
+  managerUserQuery: string,
+): Record<string, unknown> {
+  const base: Record<string, unknown> =
+    tcParams !== null && typeof tcParams === 'object' && !Array.isArray(tcParams)
+      ? { ...(tcParams as Record<string, unknown>) }
+      : {};
+
+  const fill = (key: string, value: string) => {
+    const cur = base[key];
+    if (typeof cur === 'string' && cur.trim()) return;
+    base[key] = value;
+  };
+
+  if (endpoint.includes('/api/agent/research') || toolId === 'research' || toolId === 'research-agent') {
+    fill('query', managerUserQuery);
+  } else if (endpoint.includes('/api/sentiment') || toolId === 'sentiment') {
+    fill('text', managerUserQuery);
+  } else if (endpoint.includes('/api/summarize') || toolId === 'summarize') {
+    fill('text', managerUserQuery);
+  } else if (endpoint.includes('/api/weather') || toolId === 'weather') {
+    if (typeof base.city !== 'string' || !String(base.city).trim()) {
+      const q = managerUserQuery.toLowerCase();
+      const cityMatch = q.match(/weather\s+(?:in\s+)?(.+)/i);
+      let city = cityMatch?.[1]?.trim() || 'New York';
+      city = city.replace(/^in\s+/i, '').replace(/[?.]*$/, '') || 'New York';
+      base.city = city;
+    }
+  } else if (endpoint.includes('/api/math-solve') || toolId === 'mathSolve') {
+    fill('expression', managerUserQuery);
+  } else if (endpoint.includes('/api/code-explain') || toolId === 'codeExplain') {
+    if (typeof base.code === 'string' && base.code.trim()) {
+      /* ok */
+    } else if (typeof base.spec === 'string' && base.spec.trim()) {
+      base.code = base.spec;
+    } else {
+      fill('code', managerUserQuery);
+    }
+  } else if (endpoint.includes('/api/agent/code') || toolId === 'coding' || toolId === 'coding-agent') {
+    fill('spec', managerUserQuery);
+  } else if (endpoint.includes('/api/agent/translate') || toolId === 'translate') {
+    fill('text', managerUserQuery);
+  } else if (endpoint.includes('/api/adapter/external/')) {
+    if (!base.query && !base.url) fill('query', managerUserQuery);
+  }
+
+  return base;
 }
 
 async function runManagerAgent(
@@ -1633,13 +2115,14 @@ Return ONLY valid JSON:
 
     if (clientId) {
       broadcastSSE('hiring_decision', {
-        type: 'hiring_decision', // Explicit type for frontend routing if needed
+        type: 'hiring_decision',
         tool: toolId,
         selectedAgent: agentName,
         reason: hiring.reason,
         valueScore: hiring.chosen?.efficiency || 0,
         alternatives: hiring.alternatives.map(a => ({ id: a.id, score: a.efficiency })),
-        approved: true
+        approved: true,
+        timestamp: new Date().toISOString()
       });
     }
 
@@ -1676,30 +2159,16 @@ Return ONLY valid JSON:
       endpoint = `/api/adapter/external/${toolId}`;
     }
 
-    if (agentClient) {
-      try {
-        const apiRes = await agentClient.post(`${endpoint}?token=${token}`, tc.params);
-
-        const paymentInfo = decodePaymentResponse(
-          (apiRes.headers as Record<string, string>)['payment-response'] || ''
-        );
-
-        if (paymentInfo) {
-          payment = {
-            transaction: paymentInfo.transaction,
-            token,
-            amount: `${price.xlmAmount} XLM`,
-            explorerUrl: `${EXPLORER_BASE}/tx/${paymentInfo.transaction}`,
-          };
-        } else {
-          // If no payment response header, simulate one for logging
-          payment = {
-            transaction: `pay_${Math.random().toString(16).slice(2, 10)}`,
-            token,
-            amount: `${price.xlmAmount} XLM`,
-            explorerUrl: `${EXPLORER_BASE}/tx/pay_${Math.random().toString(16).slice(2, 10)}`,
-          };
+    const internalBody = buildManagerInternalWorkerBody(toolId, endpoint, tc.params, query);
+    try {
+        const { status, headers, data } = await callInternalPaidWorker(endpoint, token, internalBody);
+        if (status >= 400) {
+          const err: any = new Error(`HTTP ${status}`);
+          err.response = { status, headers: Object.fromEntries(headers.entries()), data };
+          throw err;
         }
+
+        payment = extractA2aPaymentFromWorkerResponse(headers, data, token, price);
 
         // **LOG PAYMENT TO TRANSACTION LOG**
         const paymentLog: PaymentLog = {
@@ -1711,7 +2180,7 @@ Return ONLY valid JSON:
           transaction: payment.transaction,
           token: payment.token,
           amount: payment.amount,
-          explorerUrl: payment.explorerUrl,
+          ...(payment.explorerUrl ? { explorerUrl: payment.explorerUrl } : {}),
           isA2A: true,
           depth: 0,
         };
@@ -1719,23 +2188,23 @@ Return ONLY valid JSON:
         broadcastSSE('payment', paymentLog);
 
         // Extract the actual result
-        const data = apiRes.data;
-        toolResult = data.result || data.weather || data.summary || data.sentiment
-          || data.explanation || data.code || data.translation || data;
+        toolResult = (data as any).result || (data as any).weather || (data as any).summary || (data as any).sentiment
+          || (data as any).explanation || (data as any).code || (data as any).translation || data;
 
         // Track sub-agent hires from recursive agents
-        if (data.subAgentHires) {
-          a2aDepth = Math.max(a2aDepth, data.recursiveDepth || 1);
-          totalCost.XLM += (data.totalCostIncludingSubAgents || 0) - price.xlmAmount;
+        if ((data as any).subAgentHires) {
+          a2aDepth = Math.max(a2aDepth, (data as any).recursiveDepth || 1);
+          totalCost.XLM += ((data as any).totalCostIncludingSubAgents || 0) - price.xlmAmount;
         }
 
         // Protocol trace
         protocolTrace.push({
           step: `x402 Payment → ${agentName}`,
-          httpStatus: apiRes.status,
+          httpStatus: status,
           headers: {
-            'payment-response': (apiRes.headers as Record<string, string>)['payment-response'] || 'N/A',
-            'x-402-version': (apiRes.headers as Record<string, string>)['x-402-version'] || '1.0',
+            'payment-receipt': readPaymentHeader(headers, 'payment-receipt') || 'N/A',
+            'payment-response': readPaymentHeader(headers, 'payment-response') || 'N/A',
+            'x-402-version': readPaymentHeader(headers, 'x-402-version') || '1.0',
           },
           timestamp: new Date().toISOString(),
         });
@@ -1743,7 +2212,7 @@ Return ONLY valid JSON:
         if (clientId) {
           sendSSETo(clientId, 'thought', {
             content: `**${agentName} result:** ${typeof toolResult === 'string' ? toolResult.slice(0, 300) : 'Check protocol trace for raw result data.'}`,
-            subAgentHires: data.subAgentHires,
+            subAgentHires: (data as any).subAgentHires,
             depth: 1
           });
         }
@@ -1752,11 +2221,15 @@ Return ONLY valid JSON:
           tool: agentName,
           result: toolResult,
           payment,
-          subAgentHires: data.subAgentHires,
+          subAgentHires: (data as any).subAgentHires,
         });
 
       } catch (err: any) {
-        console.error(`[MANAGER] Tool ${toolId} failed:`, err.message);
+        console.error(`[MANAGER] Tool ${toolId} failed at endpoint=${endpoint}:`, err?.message || err);
+        if (err?.response?.data !== undefined) {
+          console.error(`[MANAGER] Tool ${toolId} response.data:`, JSON.stringify(err.response.data).slice(0, 800));
+        }
+        if (err?.stack) console.error(`[MANAGER] Tool ${toolId} stack:\n`, err.stack);
 
         // Log the 402 response for transparency
         if (err.response?.status === 402) {
@@ -1799,22 +2272,24 @@ Return ONLY valid JSON:
             });
 
             try {
-              // Attempt fallback via agentClient or simulation
-              if (agentClient) {
-                const fallbackEndpoint = `/api/${endpointMap[toolId] || toolId}`;
-                const fallbackRes = await agentClient.post(`${fallbackEndpoint}?token=${token}`, tc.params);
-                const fallbackData = fallbackRes.data;
-                toolResult = fallbackData.result || fallbackData.weather || fallbackData.summary || fallbackData;
-              } else {
-                toolResult = await simulateToolResult(toolId, tc.params, query);
+              const fallbackEndpoint = `/api/${endpointMap[toolId] || toolId}`;
+              const fb = await callInternalPaidWorker(fallbackEndpoint, token, internalBody);
+              if (fb.status >= 400) {
+                const err: any = new Error(`HTTP ${fb.status}`);
+                err.response = { status: fb.status, headers: Object.fromEntries(fb.headers.entries()), data: fb.data };
+                throw err;
               }
-
-              // Fallback payment record
+              const fallbackData = fb.data as Record<string, unknown>;
+              toolResult = fallbackData.result || fallbackData.weather || fallbackData.summary || fallbackData;
+              const fallbackPrice: PriceConfig = {
+                xlmAmount: fallbackAgent.priceXLM,
+                xlmDrops: fallbackAgent.priceDrops,
+                description: `Fallback: ${fallbackName}`,
+                category: 'a2a',
+              };
+              const extracted = extractA2aPaymentFromWorkerResponse(fb.headers, fb.data, token, fallbackPrice);
               payment = {
-                transaction: `heal_${toolId}_${Math.random().toString(16).slice(2, 10)}`,
-                token: token || 'XLM',
-                amount: `${fallbackAgent.priceXLM} XLM`,
-                explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
+                ...extracted,
                 selfHealed: true,
                 originalAgent: agentName,
                 fallbackAgent: fallbackName,
@@ -1830,7 +2305,7 @@ Return ONLY valid JSON:
                 transaction: payment.transaction,
                 token: payment.token,
                 amount: payment.amount,
-                explorerUrl: payment.explorerUrl,
+                ...(payment.explorerUrl ? { explorerUrl: payment.explorerUrl } : {}),
                 isA2A: true,
                 depth: 0,
               };
@@ -1864,14 +2339,16 @@ Return ONLY valid JSON:
         }
 
         if (!healed) {
-          // Fallback to simulation when all retries exhaust
-          console.warn(`[FALLBACK] agentClient + self-healing failed for ${toolId}. Using simulation.`);
+          if (mppSettlementRequired()) {
+            throw new Error(formatManagerToolFailure(err, endpoint, toolId));
+          }
+          // Fallback to simulation when all retries exhaust (only when not requiring on-chain settlement)
+          console.warn(`[FALLBACK] Paid internal HTTP + self-healing failed for ${toolId}. Using simulation.`);
           const simResult = await simulateToolResult(toolId, tc.params, query);
           const simPayment = {
             transaction: `sim_fallback_${toolId}_${Math.random().toString(16).slice(2, 10)}`,
             token: token || 'XLM',
             amount: `${price.xlmAmount} XLM`,
-            explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
             mode: 'simulation-fallback',
           };
 
@@ -1885,7 +2362,6 @@ Return ONLY valid JSON:
             transaction: simPayment.transaction,
             token: simPayment.token,
             amount: simPayment.amount,
-            explorerUrl: simPayment.explorerUrl,
             isA2A: true,
             depth: 0,
           };
@@ -1908,64 +2384,6 @@ Return ONLY valid JSON:
           }
         }
       }
-    } else {
-      // Simulation mode
-      payment = {
-        transaction: `sim_${toolId}_${Math.random().toString(16).slice(2, 10)}`,
-        token: token || 'XLM',
-        amount: `${price.xlmAmount} XLM`,
-        explorerUrl: `${EXPLORER_BASE}/tx/sim_${toolId}`,
-      };
-
-      paymentLogs.push({
-        id: `pay_${(++paymentIdCounter).toString(36)}`,
-        timestamp: new Date().toISOString(),
-        endpoint,
-        payer: 'Manager Agent',
-        worker: agentName,
-        transaction: payment.transaction,
-        token: payment.token,
-        amount: payment.amount,
-        explorerUrl: payment.explorerUrl,
-        isA2A: true,
-        depth: 0,
-      });
-      broadcastSSE('payment', paymentLogs[paymentLogs.length - 1]);
-
-      // Simulate tool results
-      toolResult = await simulateToolResult(toolId, tc.params, query);
-
-      // Simulate sub-agent hires for research/coding
-      const subHires: any[] = [];
-      if (toolId === 'research') {
-        const subPay = createL2Settlement('DeepResearch Alpha', 'Summarizer Pro', PRICES.summarize, token, 1);
-        subHires.push({ agent: 'Summarizer Pro', task: 'Condense findings', cost: `${PRICES.summarize.xlmAmount} XLM`, payment: subPay });
-        const subPay2 = createL2Settlement('DeepResearch Alpha', 'SentimentAI', PRICES.sentiment, token, 1);
-        subHires.push({ agent: 'SentimentAI', task: 'Tone analysis', cost: `${PRICES.sentiment.xlmAmount} XLM`, payment: subPay2 });
-        totalCost.XLM += PRICES.summarize.xlmAmount + PRICES.sentiment.xlmAmount;
-        a2aDepth = Math.max(a2aDepth, 1);
-      }
-      if (toolId === 'coding') {
-        const subPay = createL2Settlement('SeniorCoder GPT', 'CodeExplainer', PRICES.codeExplain, token, 1);
-        subHires.push({ agent: 'CodeExplainer', task: 'Quality review', cost: `${PRICES.codeExplain.xlmAmount} XLM`, payment: subPay });
-        totalCost.XLM += PRICES.codeExplain.xlmAmount;
-        a2aDepth = Math.max(a2aDepth, 1);
-      }
-
-      results.push({
-        tool: agentName,
-        result: toolResult,
-        payment,
-        subAgentHires: subHires.length > 0 ? subHires : undefined,
-      });
-
-      protocolTrace.push({
-        step: `x402 Payment → ${agentName} (L2 Settlement)`,
-        httpStatus: 200,
-        headers: { 'x-402-version': '1.0', 'x-payment-mode': 'simulation' },
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     if (clientId) {
       sendSSETo(clientId, 'step', {
@@ -2177,7 +2595,6 @@ function createL2Settlement(
     transaction: `a2a_${Math.random().toString(16).slice(2, 14)}`,
     token,
     amount: `${price.xlmAmount} XLM`,
-    explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
     isA2A: true,
     depth,
   };
@@ -2234,6 +2651,13 @@ app.post('/api/agent/query', async (req: Request, res: Response) => {
 
 // ── Arbitrator Agent Endpoint ──
 app.post('/api/agent/arbitrate', createPaidRoute(PRICES.arbitrator), async (req: Request, res: Response) => {
+  const token = resolveToken(req);
+  const out: Record<string, unknown> = { payment: null };
+  scheduleDeferredPaymentLog(req, out, '/api/agent/arbitrate', token, PRICES.arbitrator, {
+    workerName: 'Arbitrator Prime',
+    isA2A: false,
+  });
+
   const { task, context, results } = req.body;
 
   const prompt = `You are ARBITRATOR PRIME. A dispute or budget threshold has been reached.
@@ -2257,12 +2681,14 @@ app.post('/api/agent/arbitrate', createPaidRoute(PRICES.arbitrator), async (req:
       explanation = result.response.text();
     }
 
-    res.json({
+    Object.assign(out, {
       result: explanation,
       judgement: 'FINAL_AND_BINDING',
-      facilitatorUrl: `${EXPLORER_BASE}`,
+      facilitatorUrl: STELLAR_EXPERT_EXPLORER_HOME,
     });
+    res.json(out);
   } catch (err: any) {
+    delete (req as any)._mppDeferredLogPayment;
     res.status(500).json({ error: err.message });
   }
 });
@@ -2342,7 +2768,6 @@ app.post('/api/kaggleingest', async (req: Request, res: Response) => {
       transaction: `ki_${Math.random().toString(16).slice(2, 14)}`,
       token: 'XLM',
       amount: '0.02 XLM',
-      explorerUrl: `${EXPLORER_BASE}/txid/0x${Math.random().toString(16).repeat(4).slice(0, 64)}?chain=testnet`,
       isA2A: false,
       depth: 0,
     });
@@ -2411,7 +2836,6 @@ app.post('/api/agent/stress-test', async (req: Request, res: Response) => {
         transaction: `tx_stress_${Math.random().toString(16).slice(2, 10)}`,
         token: swapNeeded ? 'XLM' : 'XLM',
         amount: swapNeeded ? '0.005 XLM' : `${agent.priceXLM} XLM`,
-        explorerUrl: 'https://stellar.expert/explorer',
         isA2A: true,
         depth: depth,
         metadata

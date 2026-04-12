@@ -7,6 +7,14 @@ import { API_URL } from '@/lib/api';
 
 const API = API_URL;
 
+function stellarExpertUrlForTxHash(transaction: string): string | undefined {
+  const t = transaction.trim();
+  if (!/^[0-9a-fA-F]{64}$/.test(t)) return undefined;
+  const raw = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || 'stellar:testnet').toLowerCase();
+  const net = raw.includes('pubnet') ? 'public' : 'testnet';
+  return `https://stellar.expert/explorer/${net}/tx/${t.toLowerCase()}`;
+}
+
 interface Payment {
   id: string;
   timestamp: string | number;
@@ -97,6 +105,7 @@ export default function TransactionLog({ refreshTrigger }: Props) {
 
 function PaymentCard({ payment }: { payment: Payment }) {
   const { t } = useI18n();
+  const txUrl = payment.explorerUrl || stellarExpertUrlForTxHash(payment.transaction);
   const shortAddr = (addr: string) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '???';
   const timeAgo = (ts: string | number) => {
@@ -166,20 +175,31 @@ function PaymentCard({ payment }: { payment: Payment }) {
         </div>
       )}
 
-      {/* Explorer link */}
-      {payment.explorerUrl && (
+      {/* Explorer: only when we have a verified 64-hex ledger tx id (avoid misleading network home links). */}
+      {txUrl ? (
         <a
-          href={payment.explorerUrl}
+          href={txUrl}
+          title="Open this transaction on StellarExpert"
           target="_blank"
           rel="noreferrer"
           style={{
-            display: 'inline-block', marginTop: 4,
+            display: 'inline-block', marginTop: 6,
             fontSize: '0.55rem', color: 'var(--accent-cyan)', textDecoration: 'none',
             fontFamily: 'var(--font-mono)',
           }}
         >
           {t.viewExplorer}
         </a>
+      ) : (
+        <span
+          style={{
+            display: 'inline-block', marginTop: 6,
+            fontSize: '0.55rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
+          }}
+          title={t.explorerNoTxId}
+        >
+          {t.explorerNoTxId}
+        </span>
       )}
     </div>
   );
