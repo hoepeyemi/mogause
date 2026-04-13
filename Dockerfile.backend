@@ -3,7 +3,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 COPY backend/ ./
 RUN npm run build && npm prune --omit=dev

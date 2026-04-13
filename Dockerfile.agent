@@ -3,7 +3,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY agent/package.json agent/package-lock.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 COPY agent/ ./
 RUN npm run build && npm prune --omit=dev
