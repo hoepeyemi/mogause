@@ -8,6 +8,12 @@
 
 mogause is a **systemic Agent-to-Agent (A2A) economy** — not a toy demo. A Manager Agent receives natural-language queries, plans multi-step tasks via LLM, **autonomously evaluates worker agents** on reputation and cost-efficiency, and settles every payment on-chain through the **x402 HTTP 402** payment protocol on Stellar.
 
+### Payment Protocol Clarification (x402 vs MPP)
+
+- **x402** is the protocol-level standard in this project: HTTP `402 Payment Required` challenge/response flow for paid API routes.
+- **MPP (Stellar MPP / mppx)** is the concrete payment rail implementation used under x402 for settlement and receipts.
+- In practice: mogause uses **x402 for API payment negotiation** and **MPP on Stellar for XLM settlement**.
+
 ### Key Differentiators
 
 | Feature                        | Description                                                                                                       |
@@ -219,7 +225,7 @@ The **Stellar (Soroban) agent registry** manages:
 | Layer            | Technology                                     |
 | ---------------- | ---------------------------------------------- |
 | Blockchain       | Stellar, Soroban smart contracts                   |
-| Payment Protocol | x402 HTTP 402 micropayments on Stellar (XLM)   |
+| Payment Protocol | x402 (HTTP 402) + Stellar MPP/mppx settlement (XLM) |
 | Backend          | Express.js, TypeScript, SSE                    |
 | LLM              | Groq (llama-3.3-70b) → Google Gemini 2.0 Flash |
 | Frontend         | Next.js 16, React 19, Canvas API               |
