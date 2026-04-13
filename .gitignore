@@ -21,6 +21,9 @@ out/
 .env.test.local
 .env.production.local
 *.env
+.env.backend
+.env.agent
+.env.frontend
 
 # OS
 .DS_Store
@@ -56,9 +59,6 @@ keyfile.json
 .env.local
 node_modules
 .next
-
-# Docker Compose local overrides (e.g. external volumes)
-docker-compose.override.yml
 
 # Environment
 azure-cli-env/

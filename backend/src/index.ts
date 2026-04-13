@@ -31,7 +31,6 @@
  *   POST /api/agent/query       — Agent orchestration entry
  */
 
-import fs from 'node:fs';
 import express, { Request, Response, NextFunction } from 'express';
 import { Receipt } from 'mppx';
 import cors from 'cors';
@@ -52,14 +51,6 @@ import { EXTERNAL_AGENTS, callExternalAgent } from './universal-adapter.js';
 // ═══════════════════════════════════════════════════════════════════════════
 
 dotenv.config();
-
-/** Docker / host path for durable files (logs, exports, uploads). Compose mounts a named volume here. */
-const MOGAUSE_DATA_DIR = (process.env.MOGAUSE_DATA_DIR || '/data').trim();
-try {
-  fs.mkdirSync(MOGAUSE_DATA_DIR, { recursive: true });
-} catch (e) {
-  console.warn('[WARN] MOGAUSE_DATA_DIR not writable:', MOGAUSE_DATA_DIR, e);
-}
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
