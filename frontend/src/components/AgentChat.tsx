@@ -339,10 +339,11 @@ export default function AgentChat({ onNewPayments, onProtocolTrace }: Params) {
       }
 
       // The final result is also sent via SSE 'done', but we can update UI here from the direct response too
-      if (result.finalAnswer) {
+      const finalAnswer = typeof result.finalAnswer === 'string' ? result.finalAnswer : '';
+      if (finalAnswer) {
          setMessages(prev => [...prev, {
             role: 'assistant',
-            content: result.finalAnswer,
+            content: finalAnswer,
             depth: 0
          }]);
       }
