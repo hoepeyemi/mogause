@@ -6,6 +6,11 @@
 
 This document describes the migration of the mogause frontend from **Stacks Connect** to **Stellar Wallets Kit**, enabling support for multiple Stellar wallets (Freighter, LOBSTR, xBull, Albedo, etc.) instead of Stacks wallets.
 
+Current frontend deployment mode:
+
+- Static export build output goes to `frontend/build/` via `npm run build`
+- Brand logo + favicon use `public/mogause.png`
+
 ---
 
 ## What Changed

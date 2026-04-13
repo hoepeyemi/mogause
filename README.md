@@ -88,10 +88,9 @@ npm run install:all
 ```bash
 # Backend
 cp backend/.env.example backend/.env
-# Edit backend/.env with your keys:
-#   GROQ_API_KEY=gsk_...
-#   AGENT_PRIVATE_KEY=<hex-private-key>
-#   FACILITATOR_URL=https://x402-facilitator.onrender.com
+
+# Agent
+cp agent/.env.example agent/.env
 ```
 
 ### 3. Run
@@ -108,6 +107,63 @@ cd agent && npm start
 ```
 
 Visit **http://localhost:3000** → the mogause dashboard.
+
+---
+
+## Docker Deployment (Ubuntu + CI/CD)
+
+This repo now includes production Docker + GitHub Actions deployment for backend and agent.
+
+### Included deployment files
+
+- `Dockerfile.backend`
+- `Dockerfile.agent`
+- `.github/workflows/deploy.yml`
+- Root env templates:
+  - `.env.backend.example`
+  - `.env.agent.example`
+  - `.env.frontend.example`
+
+### Server env file layout
+
+Create these files on your Ubuntu server:
+
+- `/home/ubuntu/mogause/.env.backend`
+- `/home/ubuntu/mogause/.env.agent`
+- `/home/ubuntu/mogause/.env.frontend` (optional unless frontend is containerized)
+
+The CI workflow mounts them into containers as `/app/.env`.
+
+### Deployment behavior
+
+On push to `main`, GitHub Actions:
+
+1. Builds and pushes:
+   - `${DOCKER_USERNAME}/mogause-backend:latest`
+   - `${DOCKER_USERNAME}/mogause-agent:latest`
+2. SSHes into Ubuntu
+3. Pulls images and runs:
+   - `mogause-backend` (port mapping `8080 -> 4002`)
+   - `mogause-agent` (headless mode via `AGENT_DAEMON_MODE=true`)
+
+Access backend publicly via:
+
+- `http://<server-public-ip>:8080`
+
+---
+
+## Frontend Static Build Output
+
+Frontend is configured for static export and produces a deployable `build/` folder:
+
+```bash
+cd frontend
+npm run build
+```
+
+After completion, deploy files from:
+
+- `frontend/build/`
 
 ---
 
@@ -172,4 +228,4 @@ The **Stellar (Soroban) agent registry** manages:
 
 ---
 
-**Built for the x402 Stellar Hackathon 2026** · Autonomous. On-chain. Systemic.
+**Built for Stellar Hacks: Agent Hackathon** · Autonomous. On-chain. Systemic.
