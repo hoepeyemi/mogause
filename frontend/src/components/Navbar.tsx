@@ -42,7 +42,7 @@ export default function Navbar() {
         <div style={{ position: 'relative' }}>
           <Link href="/">
             <img
-              src="/logo.png"
+              src="/mogause.png"
               alt="mogause logo"
               style={{
                 width: 48,

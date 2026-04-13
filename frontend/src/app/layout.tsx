@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   title: 'mogause — x402 Agent Economy | Stellar Network',
   description: 'Autonomous Agent-to-Agent micropayment marketplace on Stellar via x402 protocol',
   icons: {
-    icon: '/logo.png',
+    icon: '/mogause.png',
   },
   other: {
     'talentapp:project_verification': '7903b1f0d8f28602954c3664047bb36e654a872846d77987a475e0435be21954e4bca237344e86fc98927fcd0dc21c84e62911459c536117aad6481197b5c797',

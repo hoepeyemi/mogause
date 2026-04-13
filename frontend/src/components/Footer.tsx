@@ -42,7 +42,7 @@ export default function Footer() {
           <Link href="/" style={{ textDecoration: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <img
-                src="/logo.png"
+                src="/mogause.png"
                 alt="mogause"
                 style={{
                   width: 44,
