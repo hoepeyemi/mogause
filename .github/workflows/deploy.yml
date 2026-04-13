@@ -59,8 +59,8 @@ jobs:
           file: Dockerfile.backend
           push: true
           tags: ${{ env.BACKEND_IMAGE }}
-          cache-from: type=registry,ref=${{ env.DOCKER_USERNAME }}/mogause-backend:buildcache
-          cache-to: type=registry,ref=${{ env.DOCKER_USERNAME }}/mogause-backend:buildcache,mode=max
+          cache-from: type=gha,scope=mogause-backend
+          cache-to: type=gha,mode=max,scope=mogause-backend
 
       - name: Build and push agent image
         if: github.event_name == 'push'
@@ -70,8 +70,8 @@ jobs:
           file: Dockerfile.agent
           push: true
           tags: ${{ env.AGENT_IMAGE }}
-          cache-from: type=registry,ref=${{ env.DOCKER_USERNAME }}/mogause-agent:buildcache
-          cache-to: type=registry,ref=${{ env.DOCKER_USERNAME }}/mogause-agent:buildcache,mode=max
+          cache-from: type=gha,scope=mogause-agent
+          cache-to: type=gha,mode=max,scope=mogause-agent
 
       - name: Deploy to Ubuntu server
         if: github.event_name == 'push'
