@@ -126,6 +126,7 @@ jobs:
               --name mogause-agent \
               --restart unless-stopped \
               --network mogause-net \
+              -e AGENT_DAEMON_MODE=true \
               -v $AGENT_ENV:/app/.env:ro \
               ${{ env.AGENT_IMAGE }}
 

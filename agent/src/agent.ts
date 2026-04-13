@@ -676,6 +676,22 @@ async function startRepl() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const queryArg = process.argv.slice(2).join(' ');
+const daemonMode = process.env.AGENT_DAEMON_MODE === 'true';
+
+async function startDaemon() {
+  console.log('[AGENT] Daemon mode enabled (AGENT_DAEMON_MODE=true).');
+  console.log('[AGENT] Running headless on server; interactive REPL is disabled.');
+  await discoverTools();
+
+  // Keep container alive and periodically refresh tool registry.
+  setInterval(async () => {
+    try {
+      await discoverTools();
+    } catch (e) {
+      console.error('[AGENT] Daemon refresh failed:', e instanceof Error ? e.message : String(e));
+    }
+  }, 60_000);
+}
 
 if (queryArg) {
   (async () => {
@@ -683,6 +699,11 @@ if (queryArg) {
     const result = await processQuery(queryArg);
     console.log('\n[RESULT]', JSON.stringify(result, null, 2));
   })();
+} else if (daemonMode) {
+  startDaemon().catch((e) => {
+    console.error('[AGENT] Daemon startup failed:', e instanceof Error ? e.message : String(e));
+    process.exit(1);
+  });
 } else {
   startRepl();
 }
